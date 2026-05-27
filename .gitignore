@@ -16,6 +16,12 @@ models/
 # Data — tracked separately via cloud sync
 data/
 
+# Other projects accidentally in this folder
+focus-guard/
+
+# Claude settings
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
