@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Captured images — too large for git
+captures/
+results/
+
+# ML model — regenerated from training data
+models/
+
+# Data — tracked separately via cloud sync
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
