@@ -20,7 +20,7 @@ import csv
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 
 LOG_DIR  = Path("data")
@@ -62,7 +62,7 @@ COLUMNS = [
 class DataLogger:
     """Appends colony feature rows to a persistent CSV for ML training."""
 
-    def __init__(self, log_file: str | Path = LOG_FILE):
+    def __init__(self, log_file: Union[str, Path] = LOG_FILE):
         self.log_file = Path(log_file)
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_header()
