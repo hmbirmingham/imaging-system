@@ -515,50 +515,68 @@ class PlateImagingApp:
             self.root.after(0, lambda: self._on_quantify_error(str(e)))
 
     def _on_quantify_done(self, result: dict, annotated: Path) -> None:
-        count   = result["count"]
-        s       = result.get("summary_stats", {})
-        pc      = result.get("plate_circle", {})
-        report  = result.get("anomaly_report", {})
-        ml_on   = report.get("ml_active", False)
+        count    = result["count"]
+        s        = result.get("summary_stats", {})
+        pc       = result.get("plate_circle", {})
+        report   = result.get("anomaly_report", {})
+        ml_on    = report.get("ml_active", False)
+        colonies = result.get("contours", [])
 
-        # Flag breakdown — top anomaly types
-        flags = report.get("flag_breakdown", {})
-        flag_lines = [f"    {k:<22}: {v}" for k, v in sorted(
-            flags.items(), key=lambda x: -x[1])[:5]] or ["    none"]
-
-        self._write_results("\n".join([
+        # ── Summary block ─────────────────────────────────────────────────────
+        lines = [
             "╔══════════════════════════════╗",
             "║   COLONY ANALYSIS RESULTS    ║",
             "╚══════════════════════════════╝",
             "",
-            f"  Colony Count      :  {count}",
-            f"  Anomalies Flagged :  {report.get('anomaly_count', 0)}  "
-            f"({report.get('anomaly_rate_pct', 0):.1f}%)",
-            f"  High Confidence   :  {len(report.get('high_confidence', []))}",
-            f"  Haemolysis Suspects: {s.get('hemolysis_candidates', 0)}",
+            f"  Colony Count       :  {count}",
+            f"  Anomalies Flagged  :  {report.get('anomaly_count', 0)}"
+            f"  ({report.get('anomaly_rate_pct', 0):.1f}%)",
+            f"  High Confidence    :  {len(report.get('high_confidence', []))}",
+            f"  Haemolysis Suspects:  {s.get('hemolysis_candidates', 0)}",
             "",
-            "  Area  (mm²)",
-            f"    Mean            :  {s.get('mean_area_mm2', 0):>8.3f}",
-            f"    Std Dev         :  {s.get('std_area_mm2',  0):>8.3f}",
-            f"    Min             :  {s.get('min_area_mm2',  0):>8.3f}",
-            f"    Max             :  {s.get('max_area_mm2',  0):>8.3f}",
+            "  Area (mm²)",
+            f"    Mean             :  {s.get('mean_area_mm2', 0):>8.3f}",
+            f"    Std Dev          :  {s.get('std_area_mm2',  0):>8.3f}",
+            f"    Min              :  {s.get('min_area_mm2',  0):>8.3f}",
+            f"    Max              :  {s.get('max_area_mm2',  0):>8.3f}",
             "",
-            f"  Mean Circularity  :  {s.get('mean_circularity', 0):.3f}",
-            f"  Plate Coverage    :  {s.get('coverage_pct', 0):.2f} %",
-            f"  px / mm           :  {result.get('px_per_mm', 0):.2f}",
-            "",
-            "  Anomaly Flags",
-            *flag_lines,
-            "",
-            f"  ML Layer          :  {'active' if ml_on else 'not yet trained'}",
+            f"  Mean Circularity   :  {s.get('mean_circularity', 0):.3f}",
+            f"  Plate Coverage     :  {s.get('coverage_pct', 0):.2f} %",
+            f"  px / mm            :  {result.get('px_per_mm', 0):.2f}",
+            f"  ML Layer           :  {'active' if ml_on else 'not yet trained'}",
             "",
             "  Plate geometry",
-            f"    Outer radius    :  {pc.get('radius', 'N/A')} px",
-            f"    Inner radius    :  {pc.get('inner_radius', 'N/A')} px",
-            f"    Centre          :  ({pc.get('cx', '?')}, {pc.get('cy', '?')})",
-            "",
-            "  Annotated image → results/",
-        ]))
+            f"    Outer radius     :  {pc.get('radius', 'N/A')} px",
+            f"    Centre           :  ({pc.get('cx', '?')}, {pc.get('cy', '?')})",
+        ]
+
+        # ── Per-colony flag breakdown ─────────────────────────────────────────
+        flagged = [(i + 1, c) for i, c in enumerate(colonies)
+                   if c.get("anomaly_flags") or c.get("ml_anomaly")]
+        normal_count = count - len(flagged)
+
+        lines += ["", "─" * 36, "  COLONY FLAGS", "─" * 36]
+
+        if flagged:
+            lines.append(f"  {'#':<5} {'Area mm²':>8}  Flags")
+            lines.append(f"  {'─'*5} {'─'*8}  {'─'*20}")
+            for num, c in flagged[:50]:   # cap display at 50 rows
+                all_flags = list(c.get("anomaly_flags", []))
+                if c.get("ml_anomaly"):
+                    all_flags.append("ml_anomaly")
+                flag_str = " | ".join(all_flags)
+                lines.append(f"  #{num:<4} {c['area_mm2']:>8.3f}  {flag_str}")
+            if len(flagged) > 50:
+                lines.append(f"  … {len(flagged) - 50} more flagged colonies")
+        else:
+            lines.append("  No flagged colonies")
+
+        if normal_count > 0:
+            lines.append(f"  [{normal_count} normal {'colony' if normal_count == 1 else 'colonies'} — no flags]")
+
+        lines += ["", "  Annotated image saved → results/"]
+
+        self._write_results("\n".join(lines))
 
         self.quantify_btn.config(state="normal")
         self._set_status(

@@ -21,6 +21,7 @@ distance-invariant — useful when imaging height is inconsistent.
 
 import os
 import math
+from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 import cv2
@@ -130,11 +131,12 @@ def _flag_anomalies(contour_info: List[Dict],
                     z_thresh: float = 2.5) -> List[Dict]:
     """
     Flag per-colony anomalies using Z-score on key features.
-    Adds 'anomaly_flags' and 'anomaly_score' to each colony dict.
+    Preserves any flags already set (e.g. touching_colony from watershed).
+    Adds/updates 'anomaly_flags' and 'anomaly_score' on each colony dict.
     """
     if len(contour_info) < 3:
         for c in contour_info:
-            c["anomaly_flags"] = []
+            c.setdefault("anomaly_flags", [])
             c["anomaly_score"] = 0.0
         return contour_info
 
@@ -145,15 +147,22 @@ def _flag_anomalies(contour_info: List[Dict],
             return np.zeros(len(vals))
         return np.abs((vals - vals.mean()) / std)
 
-    area_z   = z_scores("area_mm2")
-    circ_z   = z_scores("circularity")
-    aspect_z = z_scores("aspect_ratio")
+    area_z    = z_scores("area_mm2")
+    circ_z    = z_scores("circularity")
+    aspect_z  = z_scores("aspect_ratio")
+    texture_z = z_scores("texture_contrast")
+    # Combined colour anomaly: mean Z across RGB channels
+    colour_z  = (z_scores("r_mean") + z_scores("g_mean") + z_scores("b_mean")) / 3.0
 
     for i, colony in enumerate(contour_info):
-        flags = []
-        if area_z[i]   > z_thresh: flags.append("unusual_size")
-        if circ_z[i]   > z_thresh: flags.append("unusual_shape")
-        if aspect_z[i] > z_thresh: flags.append("elongated")
+        # Preserve pre-existing flags (e.g. touching_colony)
+        flags = list(colony.get("anomaly_flags", []))
+
+        if area_z[i]    > z_thresh: flags.append("unusual_size")
+        if circ_z[i]    > z_thresh: flags.append("unusual_shape")
+        if aspect_z[i]  > z_thresh: flags.append("elongated")
+        if texture_z[i] > z_thresh: flags.append("texture_anomaly")
+        if colour_z[i]  > z_thresh: flags.append("abnormal_colour")
         if colony["circularity"] < 0.4:
             flags.append("non_circular")
         if colony["aspect_ratio"] > 3.0:
@@ -161,7 +170,8 @@ def _flag_anomalies(contour_info: List[Dict],
         if colony["hemolysis_delta"] > 15:
             flags.append("hemolysis_candidate")
 
-        colony["anomaly_flags"] = flags
+        # Deduplicate, preserving order
+        colony["anomaly_flags"] = list(dict.fromkeys(flags))
         colony["anomaly_score"] = round(
             (area_z[i] + circ_z[i] + aspect_z[i]) / 3.0, 3)
 
@@ -244,6 +254,10 @@ def quantify_colonies(
     cleaned = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, k, iterations=2)
 
     # ── 5. Watershed segmentation (split touching colonies) ──────────────────
+    # Label connected components BEFORE watershed — used later to identify
+    # colonies that were touching in the raw binary image.
+    _, pre_watershed_labels = cv2.connectedComponents(cleaned)
+
     dist_transform = cv2.distanceTransform(cleaned, cv2.DIST_L2, 5)
     _, sure_fg = cv2.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
     sure_fg    = np.uint8(sure_fg)
@@ -294,6 +308,12 @@ def quantify_colonies(
         texture = _texture_contrast(gray, col_mask)
         hemol   = _hemolysis_zone(gray, pcx, pcy, equiv_r)
 
+        # Blob ID from pre-watershed labelling (used to detect touching colonies)
+        blob_id = int(pre_watershed_labels[
+            min(pcy, pre_watershed_labels.shape[0] - 1),
+            min(pcx, pre_watershed_labels.shape[1] - 1),
+        ])
+
         valid_contours.append(contour)
         contour_info.append({
             # geometry
@@ -311,14 +331,27 @@ def quantify_colonies(
             "texture_contrast": texture,
             # haemolysis
             "hemolysis_delta": hemol,
+            # internal — removed after touching detection below
+            "_blob_id":      blob_id,
+            # flags initialised empty; touching_colony added below if needed
+            "anomaly_flags": [],
         })
 
-    # ── 7. Statistical anomaly flagging ──────────────────────────────────────
+    # ── 7. Touching-colony detection ─────────────────────────────────────────
+    # Any blob that watershed split into 2+ colonies = those colonies were
+    # originally touching. Flag them before the Z-score pass runs.
+    blob_counts = Counter(c["_blob_id"] for c in contour_info)
+    for c in contour_info:
+        bid = c.pop("_blob_id")
+        if bid > 0 and blob_counts[bid] > 1:
+            c["anomaly_flags"].append("touching_colony")
+
+    # ── 8. Statistical anomaly flagging ──────────────────────────────────────
     contour_info = _flag_anomalies(contour_info, z_thresh=anomaly_z_thresh)
     count         = len(valid_contours)
     anomaly_count = sum(1 for c in contour_info if c["anomaly_flags"])
 
-    # ── 8. Summary statistics ─────────────────────────────────────────────────
+    # ── 9. Summary statistics ─────────────────────────────────────────────────
     if contour_info:
         areas  = [c["area_mm2"]     for c in contour_info]
         circs  = [c["circularity"]  for c in contour_info]
@@ -341,7 +374,7 @@ def quantify_colonies(
             "min_area_mm2", "max_area_mm2", "mean_circularity",
             "coverage_pct", "hemolysis_candidates"]}
 
-    # ── 9. Annotate output image ──────────────────────────────────────────────
+    # ── 10. Annotate output image ─────────────────────────────────────────────
     annotated = original.copy()
     cv2.circle(annotated, (cx, cy), radius,       (255, 165,   0), 3)  # orange rim
     cv2.circle(annotated, (cx, cy), inner_radius, (  0, 200, 255), 2)  # cyan boundary
