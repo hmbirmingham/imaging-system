@@ -32,7 +32,25 @@ for i in $(seq 1 20); do
 done
 
 # Open Chromium in kiosk mode
-chromium-browser \
+# Pi OS Bookworm uses "chromium"; older releases used "chromium-browser"
+CHROMIUM_BIN=""
+for candidate in chromium chromium-browser; do
+    if command -v "$candidate" &>/dev/null; then
+        CHROMIUM_BIN="$candidate"
+        break
+    fi
+done
+
+if [ -z "$CHROMIUM_BIN" ]; then
+    echo "Chromium not found — install with: sudo apt install -y chromium"
+    kill $SERVER_PID 2>/dev/null
+    exit 1
+fi
+
+# Ensure Chromium can reach the display when launched from a .desktop shortcut
+export DISPLAY="${DISPLAY:-:0}"
+
+"$CHROMIUM_BIN" \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
