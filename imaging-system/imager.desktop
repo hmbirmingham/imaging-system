@@ -1,10 +1,9 @@
 [Desktop Entry]
-Version=1.0
-Type=Application
-Name=Imager
+Name=Plate Imaging System
 Comment=Bacterial colony imaging and quantification
-Exec=bash /home/pi/imager/launch.sh
+Exec=/home/imager/imager/system/imaging-system/launch.sh
 Icon=camera
 Terminal=false
-Categories=Science;Education;
+Type=Application
+Categories=Science;
 StartupNotify=true
