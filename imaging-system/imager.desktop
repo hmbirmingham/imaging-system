@@ -1,7 +1,8 @@
 [Desktop Entry]
+Version=1.0
 Name=Plate Imaging System
 Comment=Bacterial colony imaging and quantification
-Exec=/home/imager/imager/system/imaging-system/launch.sh
+Exec=bash /home/imager/imager/system/imaging-system/launch.sh
 Icon=camera
 Terminal=false
 Type=Application
