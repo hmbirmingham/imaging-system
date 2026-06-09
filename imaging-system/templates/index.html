@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Plate Imaging System</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+<nav class="sidebar">
+  <div class="sidebar-brand">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <circle cx="14" cy="14" r="12" stroke="var(--accent)" stroke-width="2"/>
+      <circle cx="14" cy="14" r="6"  fill="var(--accent)" opacity=".25"/>
+      <circle cx="14" cy="14" r="2"  fill="var(--accent)"/>
+    </svg>
+  </div>
+
+  <button class="nav-btn active" data-view="capture" title="Capture">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M9 2h6l2 3H5L7 2zM3 7h18a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/>
+    </svg>
+    <span>Capture</span>
+  </button>
+
+  <button class="nav-btn" data-view="library" title="Library">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <rect x="3" y="3" width="7" height="7" rx="1"/>
+      <rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/>
+      <rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+    <span>Library</span>
+  </button>
+</nav>
+
+<!-- ── Main ─────────────────────────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- ── Capture view ──────────────────────────────────────────────────── -->
+  <section id="view-capture" class="view active">
+    <div class="capture-layout">
+
+      <!-- Left: preview -->
+      <div class="preview-wrap">
+        <div class="preview-card">
+          <div class="preview-header">
+            <span class="preview-title">Live Preview</span>
+            <span id="cam-badge" class="badge {% if camera_available %}badge-green{% else %}badge-red{% endif %}">
+              {% if camera_available %}● Live{% else %}✕ No Camera{% endif %}
+            </span>
+          </div>
+
+          {% if camera_available %}
+            <img id="camera-feed" class="camera-feed" src="/stream" alt="Camera preview">
+          {% else %}
+            <div class="no-camera-placeholder">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--tertiary)" stroke-width="1.2">
+                <path d="M9 2h6l2 3H5L7 2zM3 7h18a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/>
+                <line x1="2" y1="2" x2="22" y2="22" stroke="var(--red)" stroke-width="1.5"/>
+              </svg>
+              <p class="no-camera-text">No Camera Connected</p>
+              <p class="no-camera-sub">Connect a camera and restart the server</p>
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Status bar -->
+        <div class="status-bar" id="status-bar">Ready</div>
+      </div>
+
+      <!-- Right: controls -->
+      <aside class="controls-col">
+
+        <!-- LED Brightness -->
+        <div class="card {% if not led_available %}card-disabled{% endif %}" id="led-card">
+          <div class="card-header-row">
+            <span class="card-title">Backlight</span>
+            {% if not led_available %}
+              <span class="badge badge-gray">Not available</span>
+            {% endif %}
+          </div>
+          <div class="slider-row">
+            <span class="slider-label">Brightness</span>
+            <input type="range" class="slider" id="led-slider"
+                   min="0" max="100" value="80"
+                   {% if not led_available %}disabled{% endif %}>
+            <span class="pill" id="led-val">80%</span>
+          </div>
+        </div>
+
+        <!-- Image controls card -->
+        <div class="card {% if not camera_available %}card-disabled{% endif %}">
+          <div class="card-header-row">
+            <span class="card-title">Image</span>
+            {% if not camera_available %}<span class="badge badge-gray">No camera</span>{% endif %}
+          </div>
+          <div class="slider-row">
+            <span class="slider-label">Brightness</span>
+            <input type="range" class="slider" id="brightness-slider"
+                   min="-100" max="100" value="0"
+                   {% if not camera_available %}disabled{% endif %}>
+            <span class="pill" id="brightness-val">0</span>
+          </div>
+          <div class="slider-row">
+            <span class="slider-label">Contrast</span>
+            <input type="range" class="slider" id="contrast-slider"
+                   min="0" max="400" value="100"
+                   {% if not camera_available %}disabled{% endif %}>
+            <span class="pill" id="contrast-val">1.0×</span>
+          </div>
+          <div class="slider-row">
+            <span class="slider-label">Saturation</span>
+            <input type="range" class="slider" id="saturation-slider"
+                   min="0" max="400" value="100"
+                   {% if not camera_available %}disabled{% endif %}>
+            <span class="pill" id="saturation-val">1.0×</span>
+          </div>
+        </div>
+
+        <!-- Camera settings (collapsible) -->
+        <div class="card collapsible-card {% if not camera_available %}card-disabled{% endif %}" id="camera-card">
+          <button class="collapsible-trigger" onclick="toggleCard('camera-card')">
+            <span class="card-title">Camera Settings</span>
+            {% if not camera_available %}<span class="badge badge-gray">No camera</span>{% endif %}
+            <svg class="chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="4,6 8,10 12,6"/>
+            </svg>
+          </button>
+          <div class="collapsible-body">
+            <div class="toggle-row">
+              <span class="slider-label">Auto Exposure</span>
+              <label class="toggle">
+                <input type="checkbox" id="ae-toggle" checked
+                       {% if not camera_available %}disabled{% endif %}>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div id="manual-exposure" class="manual-exposure-group disabled">
+              <div class="slider-row">
+                <span class="slider-label">Exposure (µs)</span>
+                <input type="range" class="slider" id="exposure-slider"
+                       min="1000" max="100000" value="20000" disabled>
+                <span class="pill" id="exposure-val">20000</span>
+              </div>
+              <div class="slider-row">
+                <span class="slider-label">Gain</span>
+                <input type="range" class="slider" id="gain-slider"
+                       min="10" max="80" value="10" disabled>
+                <span class="pill" id="gain-val">1.0×</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action buttons -->
+        <button id="capture-btn" class="btn btn-primary"
+                {% if not camera_available %}disabled{% endif %}>
+          Capture Image
+        </button>
+        <button id="quantify-btn" class="btn btn-success" disabled>
+          Quantify Selected
+        </button>
+
+        <!-- Thumbnail strip -->
+        <div class="strip-card">
+          <div class="card-header-row">
+            <span class="card-title">Recent</span>
+          </div>
+          <div class="thumb-strip" id="thumb-strip">
+            <div class="strip-empty" id="strip-empty">No captures yet</div>
+          </div>
+        </div>
+
+        <!-- Results panel -->
+        <div class="card results-card" id="results-card">
+          <div class="card-header-row">
+            <span class="card-title">Results</span>
+            <span id="results-badge" class="badge" style="display:none"></span>
+          </div>
+          <div id="results-empty" class="results-empty">
+            <p>Select an image and click <strong>Quantify Selected</strong></p>
+          </div>
+          <div id="results-content" style="display:none">
+            <div class="stats-grid" id="stats-grid"></div>
+            <div class="colony-list" id="colony-list"></div>
+          </div>
+          <div id="results-spinner" class="spinner-wrap" style="display:none">
+            <div class="spinner"></div>
+            <span>Analysing…</span>
+          </div>
+        </div>
+
+      </aside>
+    </div>
+  </section>
+
+  <!-- ── Library view ───────────────────────────────────────────────────── -->
+  <section id="view-library" class="view">
+    <div class="library-header">
+      <h1 class="page-title">Library</h1>
+      <div class="search-row">
+        <div class="search-field">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="lib-search" placeholder="Search captures…">
+        </div>
+        <select class="filter-select" id="lib-filter">
+          <option value="">All</option>
+          <option value="flagged">Flagged</option>
+          <option value="clean">Clean</option>
+          <option value="unanalysed">Unanalysed</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="photo-grid" id="photo-grid">
+      <div class="library-empty" id="library-empty">
+        <div class="empty-icon">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--tertiary)" stroke-width="1.2">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+          </svg>
+        </div>
+        <h3 class="empty-title">No captures yet</h3>
+        <p class="empty-sub">Run an analysis to get started.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ── Detail panel (slide-in) ──────────────────────────────────────────── -->
+<div class="detail-overlay" id="detail-overlay" onclick="closeDetail()"></div>
+<aside class="detail-panel" id="detail-panel">
+  <div class="detail-header">
+    <button class="detail-close" onclick="closeDetail()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <h2 class="detail-title" id="detail-title">Details</h2>
+  </div>
+  <div class="detail-body" id="detail-body">
+    <div class="spinner-wrap"><div class="spinner"></div></div>
+  </div>
+</aside>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
