@@ -1,171 +1,176 @@
 """
-led_pwm.py — Hardware PWM for LED backlight on Raspberry Pi 5.
+led_pwm.py — Python wrapper around the led_pwm.so C shared library.
 
-Directly accesses the RP1 PWM peripheral via mmap on /dev/mem.
-Falls back gracefully on any failure — the app continues without LED control.
+The real driver logic lives in led_pwm.c (hardware PWM via /dev/mem mmap).
+This module auto-compiles the C source on first import if led_pwm.so is
+missing or outdated, then loads it with ctypes.
 
-Hardware target: Pi 5, GPIO 12, PWM0_CHAN0, RP1 peripheral.
-RP1 PWM base physical address: 0x1f00098000
-RP1 GPIO base physical address: 0x1f000d0000
+Public API is identical to the previous pure-Python implementation so
+server.py requires no changes:
+
+    pwm = get_pwm()
+    pwm.set_brightness(75)   # 0–100 %
+    pwm.off()
+    pwm.available            # bool — False if driver init failed
+
+Falls back gracefully on any failure (permission denied, not Pi hardware,
+gcc not found) — the app continues without LED control.
 """
 
 from __future__ import annotations
 
+import ctypes
 import logging
-import mmap
-import os
-import struct
+import subprocess
+from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
-# ── RP1 physical addresses (Pi 5) ─────────────────────────────────────────────
-_RP1_PWM0_PHYS  = 0x1f00098000   # PWM0 peripheral
-_RP1_GPIO_PHYS  = 0x1f000d0000   # GPIO peripheral
+_HERE = Path(__file__).parent
+_C_SRC = _HERE / "led_pwm.c"
+_SO    = _HERE / "led_pwm.so"
 
-# PWM register offsets (matches BCM2835 layout, compatible with RP1)
-_PWM_CTL  = 0x00   # Control
-_PWM_STA  = 0x04   # Status
-_PWM_RNG1 = 0x10   # Range  (period), channel 1
-_PWM_DAT1 = 0x14   # Data   (duty),   channel 1
 
-# GPIO_CTRL offset within per-pin block (8 bytes per GPIO in RP1)
-_GPIO_CTRL = 0x04
+# ── Compile ───────────────────────────────────────────────────────────────────
 
-# PWM clock on RP1 is fixed at 25 MHz.
-# Range = 25_000_000 / target_freq_hz. 25 kHz gives smooth LED dimming.
-_PWM_RANGE = 1000          # 25 MHz / 25 kHz
-_PWM_GPIO  = 12            # GPIO pin for PWM0_CHAN0
-_PWM_FUNCSEL = 4           # ALT function value for PWM on GPIO 12 in RP1
+def _compile() -> bool:
+    """
+    Compile led_pwm.c → led_pwm.so if the .so is missing or the .c is newer.
+    Returns True on success, False on failure.
+    """
+    need_build = (
+        not _SO.exists()
+        or (_C_SRC.exists() and _C_SRC.stat().st_mtime > _SO.stat().st_mtime)
+    )
+    if not need_build:
+        return True
 
-# CTL register bits
-_CTL_PWEN1 = 1 << 0        # Enable channel 1
-_CTL_MSEN1 = 1 << 7        # M/S mode (true PWM duty cycle, not dithered)
+    log.info("LED PWM: compiling led_pwm.c …")
+    result = subprocess.run(
+        ["gcc", "-O2", "-shared", "-fPIC", "-o", str(_SO), str(_C_SRC)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        log.warning("LED PWM: gcc failed — %s", result.stderr.strip())
+        return False
 
+    log.info("LED PWM: compiled successfully → %s", _SO)
+    return True
+
+
+# ── Load shared library ───────────────────────────────────────────────────────
+
+def _load() -> Optional[ctypes.CDLL]:
+    """
+    Load led_pwm.so and declare the C function signatures so ctypes can
+    marshal arguments and return values correctly.
+    Returns the loaded library or None on failure.
+    """
+    if not _compile():
+        return None
+
+    try:
+        lib = ctypes.CDLL(str(_SO))
+    except OSError as e:
+        log.warning("LED PWM: cannot load led_pwm.so — %s", e)
+        return None
+
+    # Declare types so ctypes marshals correctly
+    lib.pwm_init.restype          = ctypes.c_int
+    lib.pwm_init.argtypes         = []
+
+    lib.pwm_set_brightness.restype  = None
+    lib.pwm_set_brightness.argtypes = [ctypes.c_float]
+
+    lib.pwm_get_brightness.restype  = ctypes.c_float
+    lib.pwm_get_brightness.argtypes = []
+
+    lib.pwm_off.restype    = None
+    lib.pwm_off.argtypes   = []
+
+    lib.pwm_is_available.restype  = ctypes.c_int
+    lib.pwm_is_available.argtypes = []
+
+    lib.pwm_cleanup.restype  = None
+    lib.pwm_cleanup.argtypes = []
+
+    return lib
+
+
+# ── HardwarePWM class ─────────────────────────────────────────────────────────
 
 class HardwarePWM:
     """
-    Direct mmap PWM driver for Pi 5 RP1 peripheral.
+    Thin Python wrapper around the C PWM driver.
 
-    Usage
-    -----
-        pwm = HardwarePWM()
-        pwm.set_brightness(75)   # 75 %
-        pwm.off()
+    Presents the same interface as the previous pure-Python version so
+    nothing else in the codebase needs to change.
 
-    If hardware init fails, `available` is False and all calls are no-ops.
+    If the C library fails to load or initialise, `available` is False
+    and all method calls are no-ops.
     """
 
-    def __init__(self, gpio: int = _PWM_GPIO) -> None:
-        self.available  = False
-        self._gpio      = gpio
-        self._brightness = 0.0
-        self._pwm_map: Optional[mmap.mmap] = None
-        self._gpio_map: Optional[mmap.mmap] = None
+    def __init__(self) -> None:
+        self.available   = False
+        self._lib: Optional[ctypes.CDLL] = None
         self._init()
 
-    # ── Init ──────────────────────────────────────────────────────────────────
-
     def _init(self) -> None:
-        try:
-            fd = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
-        except PermissionError:
-            log.warning("LED PWM: /dev/mem access denied (need root or video group) — LED disabled")
-            return
-        except FileNotFoundError:
-            log.warning("LED PWM: /dev/mem not found — not running on Pi hardware")
-            return
-        except OSError as e:
-            log.warning("LED PWM: cannot open /dev/mem: %s — LED disabled", e)
+        """Load the shared library and call pwm_init()."""
+        lib = _load()
+        if lib is None:
             return
 
         try:
-            page = mmap.PAGESIZE
-
-            # Map PWM registers
-            pwm_aligned = _RP1_PWM0_PHYS & ~(page - 1)
-            self._pwm_map = mmap.mmap(
-                fd, page,
-                mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
-                offset=pwm_aligned,
-            )
-
-            # Map GPIO registers
-            gpio_aligned = _RP1_GPIO_PHYS & ~(page - 1)
-            self._gpio_map = mmap.mmap(
-                fd, page,
-                mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
-                offset=gpio_aligned,
-            )
-
-            os.close(fd)
-
-            self._set_gpio_function()
-            self._write_pwm(_PWM_RNG1, _PWM_RANGE)
-            self._write_pwm(_PWM_DAT1, 0)
-            self._write_pwm(_PWM_CTL, _CTL_MSEN1 | _CTL_PWEN1)
-
-            self.available = True
-            log.info("LED PWM: RP1 hardware PWM initialised on GPIO %d", self._gpio)
-
+            ok = lib.pwm_init()
         except Exception as e:
-            log.warning("LED PWM: init error (%s) — LED disabled", e)
-            self._cleanup_maps()
+            log.warning("LED PWM: pwm_init() raised %s — LED disabled", e)
+            return
 
-    def _set_gpio_function(self) -> None:
-        """Set GPIO_CTRL FUNCSEL to route PWM to the pin."""
-        offset = self._gpio * 8 + _GPIO_CTRL     # 8 bytes per pin in RP1
-        self._gpio_map.seek(offset)
-        val = struct.unpack("<I", self._gpio_map.read(4))[0]
-        val = (val & ~0x1F) | (_PWM_FUNCSEL & 0x1F)
-        self._gpio_map.seek(offset)
-        self._gpio_map.write(struct.pack("<I", val))
-
-    # ── Register helpers ──────────────────────────────────────────────────────
-
-    def _write_pwm(self, reg: int, val: int) -> None:
-        self._pwm_map.seek(reg)
-        self._pwm_map.write(struct.pack("<I", val & 0xFFFF_FFFF))
+        if ok:
+            self._lib      = lib
+            self.available = True
+            log.info("LED PWM: C driver initialised")
+        else:
+            log.warning("LED PWM: pwm_init() returned 0 — LED disabled")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def set_brightness(self, percent: float) -> None:
-        """Set brightness 0–100. Clamps silently to range."""
-        percent = max(0.0, min(100.0, float(percent)))
-        self._brightness = percent
-        if not self.available:
-            return
-        duty = int(_PWM_RANGE * percent / 100.0)
-        self._write_pwm(_PWM_DAT1, duty)
+        """Set LED brightness 0–100 %. Clamps silently to range."""
+        if self._lib:
+            self._lib.pwm_set_brightness(float(percent))
 
     @property
     def brightness(self) -> float:
-        return self._brightness
+        """Return the last brightness value set (0–100)."""
+        if self._lib:
+            return float(self._lib.pwm_get_brightness())
+        return 0.0
 
     def off(self) -> None:
-        self.set_brightness(0)
-
-    def _cleanup_maps(self) -> None:
-        for m in (self._pwm_map, self._gpio_map):
-            if m:
-                try:
-                    m.close()
-                except Exception:
-                    pass
+        """Turn LED off (brightness = 0)."""
+        if self._lib:
+            self._lib.pwm_off()
 
     def __del__(self) -> None:
+        """Clean up mmap regions on garbage collection."""
         try:
-            self.off()
+            if self._lib:
+                self._lib.pwm_cleanup()
         except Exception:
             pass
-        self._cleanup_maps()
 
 
-# ── Module-level singleton ─────────────────────────────────────────────────────
+# ── Module-level singleton ────────────────────────────────────────────────────
+
 _instance: Optional[HardwarePWM] = None
 
 
 def get_pwm() -> HardwarePWM:
+    """Return the module-level HardwarePWM singleton."""
     global _instance
     if _instance is None:
         _instance = HardwarePWM()
