@@ -32,6 +32,32 @@ The user interface is a Flask web app (Apple-style SPA) served at `http://localh
 
 ---
 
+## Project status & roadmap
+
+| Capability | Status |
+|---|---|
+| Profile system (39 organisms × 11 plate types) | ✅ Built |
+| Pipeline integration (swarming suppression, size bands) | ✅ Built |
+| In-app validation UI | ✅ Built |
+| Settings + ML Diagnostics | ✅ Built |
+| **Biology validation (PhD sign-off)** | 🚩 **Not started** — all 39 profiles `validated: false` |
+| **Per-plate appearance** (hemolysis, lactose, size, colour) | 🚩 **Not started** — seeded `unknown`, awaiting validation |
+| **Ground-truth labels** (`is_anomaly`) | 🚩 **Not started** — 0 labelled colonies |
+| **ML anomaly model** | 🚩 **Not trained** — needs ≥ 50 labelled colonies |
+| **Counting / placement accuracy** | 🚩 **No data** — needs validated plates |
+| Hardware — Custom Power Control PCB (incl. white LED board) | 🚩 **Pending** |
+| Hardware — enclosure | ⏳ Pending (June) |
+
+### Pending validation (flagged)
+
+Until Dr. Ryberg signs off in-app, **treat all biology as provisional**:
+
+- 🚩 All 39 organism profiles are unvalidated defaults. Organism-level facts (Gram, swarming, incubation window) are safe textbook values; **per-plate appearance is `unknown`** and must be validated per medium.
+- 🚩 Profile-aware size flagging stays **off** until a profile is validated (the statistical anomaly layer still runs).
+- 🚩 The ML anomaly classifier is **inactive** until labelled data accumulates through validation.
+
+---
+
 ## Organism & plate profiles
 
 Profiles live as YAML and are split into two concerns:
