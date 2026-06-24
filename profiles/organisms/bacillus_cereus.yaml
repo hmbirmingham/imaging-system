@@ -1,0 +1,29 @@
+profile_id: bacillus_cereus
+display_name: Bacillus cereus
+plate_types:
+- BAP
+instrument:
+  plate_diameter_mm: 90
+  px_per_mm_expected: null
+  exposure_hint_us: 20000
+  gain_hint: 1.0
+  locked: false
+biology:
+  gram: positive
+  cell_morphology: rod
+  swarming: false
+  incubation_time_h_min: 18
+  incubation_time_h_max: 24
+  plates:
+    default:
+      colony_size: medium
+      size_tolerance: loose
+      hemolysis: unknown
+      lactose: unknown
+      colony_color: null
+      morphology: null
+      notes: ''
+validation:
+  validated: false
+  validated_by: null
+  validated_at: null

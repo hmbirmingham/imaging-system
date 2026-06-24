@@ -706,3 +706,173 @@ body {
   margin-top: 8px;
 }
 .export-btn:hover { background: rgba(0,113,227,0.14); }
+
+/* ── Sample selectors / validation ──────────────────────────────────────── */
+.select-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.select-row:last-child { margin-bottom: 0; }
+.select-row .filter-select { width: 100%; }
+
+.validate-btn {
+  width: 100%;
+  padding: 12px;
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-pill);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+  margin-top: 8px;
+}
+.validate-btn:hover:not(:disabled) { background: #30b352; }
+.validate-btn:disabled { opacity: .5; cursor: default; }
+
+.val-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 12px;
+}
+.val-back {
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.val-hint { font-size: 11px; color: var(--tertiary); line-height: 1.3; }
+
+.val-canvas { position: relative; display: block; border-radius: var(--radius-sm); overflow: hidden; }
+.val-img { display: block; width: 100%; }
+.val-overlay { position: absolute; inset: 0; cursor: crosshair; }
+
+.val-marker {
+  position: absolute;
+  width: 22px; height: 22px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+.val-marker:hover { transform: translate(-50%, -50%) scale(1.25); }
+.m-normal   { background: var(--green); }
+.m-anomaly  { background: var(--red); }
+.m-rejected { background: var(--gray); opacity: .45; text-decoration: line-through; }
+.m-added    { border-style: dashed; }
+
+.val-counts {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  margin: 12px 0; font-size: 13px; color: var(--secondary);
+}
+.vc b { color: var(--text); }
+.vc-anom b { color: var(--red); }
+.vc-rej  b { color: var(--gray); }
+.vc-add  b { color: var(--accent); }
+
+.val-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font); font-size: 13px;
+  background: var(--surface-solid); color: var(--text);
+}
+.val-num { width: 60px; }
+.select-row .val-num + .val-num { margin-left: 4px; }
+
+.val-subtle {
+  font-size: 11px; font-weight: 600; color: var(--tertiary);
+  text-transform: uppercase; letter-spacing: .04em;
+  margin: 12px 0 6px;
+}
+.val-note { font-size: 12px; color: var(--tertiary); padding: 4px 0; }
+.val-msg  { font-size: 12px; margin-top: 8px; text-align: center; min-height: 16px; }
+.val-msg.ok  { color: var(--green); }
+.val-msg.err { color: var(--red); }
+
+/* ── Sidebar bottom item ─────────────────────────────────────────────────── */
+.nav-btn-bottom { margin-top: auto; }
+
+/* ── Profiles view ───────────────────────────────────────────────────────── */
+.profiles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  padding: 4px 2px 40px;
+  overflow-y: auto;
+}
+.profile-card {
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+.profile-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.profile-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.profile-name { font-size: 14px; font-weight: 600; line-height: 1.25; }
+.profile-meta { display: flex; gap: 6px; margin-bottom: 10px; }
+.gram-tag { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-pill); background: rgba(0,0,0,.05); color: var(--secondary); }
+.gram-positive { background: rgba(0,113,227,.1); color: var(--accent); }
+.gram-negative { background: rgba(255,149,0,.12); color: var(--yellow); }
+.swarm-tag { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-pill); background: rgba(255,59,48,.1); color: var(--red); }
+.plate-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.plate-chip { font-size: 10px; padding: 2px 7px; border-radius: 6px; background: rgba(0,0,0,.05); color: var(--secondary); }
+
+/* ── Settings view ───────────────────────────────────────────────────────── */
+.settings-wrap { max-width: 680px; margin: 0 auto; padding: 4px 2px 40px; overflow-y: auto; height: 100%; }
+.settings-sub { font-size: 12px; color: var(--tertiary); margin-bottom: 16px; }
+.seg { display: inline-flex; gap: 3px; background: rgba(0,0,0,.05); padding: 3px; border-radius: 10px; margin-bottom: 18px; }
+.seg-btn { padding: 6px 16px; border: none; background: none; border-radius: 8px; font-family: var(--font); font-size: 13px; color: var(--secondary); cursor: pointer; }
+.seg-btn.active { background: var(--surface-solid); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.settings-panel { display: none; }
+.settings-panel.active { display: block; }
+.sensitivity-word { font-size: 12px; color: var(--accent); text-align: right; margin-top: 4px; }
+.settings-saved { font-size: 12px; color: var(--green); text-align: center; min-height: 16px; opacity: 0; transition: opacity var(--transition); }
+.settings-saved.show { opacity: 1; }
+
+/* ── Diagnostics ─────────────────────────────────────────────────────────── */
+.diag-sec { font-size: 11px; font-weight: 600; color: var(--tertiary); text-transform: uppercase; letter-spacing: .04em; margin: 16px 0 10px; }
+.diag-sec:first-child { margin-top: 4px; }
+.diag-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+.mc { background: var(--surface-solid); border: 1px solid var(--border); border-radius: 14px; padding: 11px 13px; }
+.mc-l { font-size: 11px; color: var(--tertiary); margin-bottom: 4px; }
+.mc-v { font-size: 20px; font-weight: 600; }
+.mc-s { font-size: 11px; color: var(--green); margin-top: 2px; }
+.mc-s.mc-warn { color: var(--yellow); }
+.diag-pe { display: flex; gap: 10px; margin-bottom: 14px; }
+.peb { flex: 1; background: var(--surface-solid); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.peb-v { font-size: 22px; font-weight: 600; }
+.peb-l { font-size: 12px; color: var(--secondary); margin-top: 2px; line-height: 1.35; }
+.hint { font-size: 11px; color: var(--tertiary); }
+.prog-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--secondary); margin-bottom: 8px; }
+.prog-bar { height: 8px; border-radius: 5px; background: rgba(0,0,0,.07); overflow: hidden; }
+.prog-bar > div { height: 100%; background: var(--accent); border-radius: 5px; transition: width var(--transition); }
+.fbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+.fbar-n { width: 130px; color: var(--secondary); }
+.fbar-t { flex: 1; height: 7px; border-radius: 4px; background: rgba(0,0,0,.06); overflow: hidden; }
+.fbar-t > span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.fbar-v { width: 30px; text-align: right; color: var(--tertiary); }
+.chart-legend { display: flex; gap: 16px; justify-content: center; margin-top: 8px; font-size: 12px; color: var(--secondary); }
+.chart-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.dot-green { background: var(--green); }
+.dot-blue  { background: var(--accent); }
+.diag-empty { font-size: 13px; color: var(--tertiary); text-align: center; padding: 24px; background: var(--surface-solid); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 14px; }
+.diag-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.diag-actions .validate-btn, .diag-actions .export-btn { width: auto; margin-top: 0; text-decoration: none; text-align: center; }
+
+.raw-toggle {
+  font-size: 11px; color: var(--accent); cursor: pointer;
+  padding: 4px 0 8px; text-align: center; user-select: none;
+}
+.raw-toggle:hover { text-decoration: underline; }

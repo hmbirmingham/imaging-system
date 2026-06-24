@@ -1,0 +1,6 @@
+code: BAP
+name: Blood Agar (BAP)
+imaging:
+  background: deep red, opaque
+  background_rgb: null
+  notes: ''

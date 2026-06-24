@@ -31,6 +31,8 @@ COLUMNS = [
     # Run metadata
     "timestamp",
     "image_path",
+    "plate_type",         # culture medium code (BAP, MAC, …) — default "unknown"
+    "profile_id",         # organism profile id — default "unknown"
     "manual_count",       # filled in if user provides it
     "auto_count",
     "px_per_mm",
@@ -56,25 +58,57 @@ COLUMNS = [
     "ml_anomaly",
     "ml_score",
     "is_anomaly",         # ground truth label — None until manually confirmed
+    # Validation (filled by the in-app PhD validation workflow)
+    "validation_status",  # confirmed | false_positive | added | "" (unreviewed)
+    "validated_by",       # who signed off
 ]
 
 
 class DataLogger:
     """Appends colony feature rows to a persistent CSV for ML training."""
 
+    # Columns whose "absent" default is "unknown" rather than "" when migrating
+    # an older CSV that predates them.
+    _DEFAULT_UNKNOWN = {"plate_type", "profile_id"}
+
     def __init__(self, log_file: Union[str, Path] = LOG_FILE):
         self.log_file = Path(log_file)
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        self._ensure_header()
+        self._ensure_schema()
 
-    def _ensure_header(self) -> None:
+    def _ensure_schema(self) -> None:
+        """
+        Create the CSV with the current header, or migrate an existing one that
+        predates newer columns (e.g. plate_type/profile_id) by rewriting it with
+        the full header — existing rows get sensible defaults. Append-safe.
+        """
         if not self.log_file.exists():
             with open(self.log_file, "w", newline="") as f:
                 csv.DictWriter(f, fieldnames=COLUMNS).writeheader()
+            return
+
+        with open(self.log_file, newline="") as f:
+            existing_header = next(csv.reader(f), [])
+        if existing_header == COLUMNS:
+            return   # already current
+
+        # Migrate: re-read rows under the old header, rewrite under the new one.
+        with open(self.log_file, newline="") as f:
+            old_rows = list(csv.DictReader(f))
+        with open(self.log_file, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=COLUMNS)
+            writer.writeheader()
+            for r in old_rows:
+                writer.writerow({
+                    c: r.get(c, "unknown" if c in self._DEFAULT_UNKNOWN else "")
+                    for c in COLUMNS
+                })
 
     def log(self,
             result: Dict,
-            manual_count: Optional[int] = None) -> int:
+            manual_count: Optional[int] = None,
+            plate_type: str = "unknown",
+            profile_id: str = "unknown") -> int:
         """
         Append per-colony rows from a quantify_colonies() result.
 
@@ -82,6 +116,8 @@ class DataLogger:
         ----------
         result       : dict returned by quantify_colonies()
         manual_count : human-verified count for this plate (optional)
+        plate_type   : culture medium code (BAP, MAC, …); default "unknown"
+        profile_id   : organism profile id; default "unknown"
 
         Returns
         -------
@@ -97,6 +133,8 @@ class DataLogger:
             row = {
                 "timestamp":          timestamp,
                 "image_path":         result.get("input_path", ""),
+                "plate_type":         plate_type or "unknown",
+                "profile_id":         profile_id or "unknown",
                 "manual_count":       manual_count if manual_count is not None else "",
                 "auto_count":         result.get("count", ""),
                 "px_per_mm":          round(result.get("px_per_mm", 0), 4),
@@ -134,6 +172,86 @@ class DataLogger:
             writer.writerows(rows)
 
         return len(rows)
+
+    def apply_validation(self,
+                         image_path: str,
+                         labels: Dict[int, Dict],
+                         added: Optional[list] = None,
+                         manual_count: Optional[int] = None,
+                         plate_type: Optional[str] = None,
+                         profile_id: Optional[str] = None,
+                         validated_by: str = "") -> Dict:
+        """
+        Fill ground-truth labels for a previously-logged image. This is what the
+        PhD validation workflow writes: it turns the always-blank is_anomaly
+        column into real training labels.
+
+        Parameters
+        ----------
+        image_path   : the result['input_path'] used when the run was logged.
+        labels       : {colony_id: {"is_anomaly": 0|1,
+                                     "status": "confirmed"|"false_positive"}}
+        added        : list of {"centroid_x","centroid_y","is_anomaly"} the human
+                       added (colonies the detector missed) — appended as new rows
+                       with status "added".
+        manual_count : human-verified colony count for the plate.
+        validated_by : signer name.
+
+        Returns {"updated": n, "added": m}.
+        """
+        if not self.log_file.exists():
+            return {"updated": 0, "added": 0}
+
+        with open(self.log_file, newline="") as f:
+            rows = list(csv.DictReader(f))
+
+        updated = 0
+        max_cid = 0
+        for r in rows:
+            if r.get("image_path") != image_path:
+                continue
+            try:
+                cid = int(r.get("colony_id") or 0)
+            except ValueError:
+                cid = 0
+            max_cid = max(max_cid, cid)
+            if cid in labels:
+                lab = labels[cid]
+                r["is_anomaly"]        = lab.get("is_anomaly", "")
+                r["validation_status"] = lab.get("status", "confirmed")
+                r["validated_by"]      = validated_by
+                if manual_count is not None:
+                    r["manual_count"] = manual_count
+                if plate_type:
+                    r["plate_type"] = plate_type
+                if profile_id:
+                    r["profile_id"] = profile_id
+                updated += 1
+
+        new_rows = []
+        for i, a in enumerate(added or [], start=1):
+            blank = {c: "" for c in COLUMNS}
+            blank.update({
+                "timestamp":         datetime.now().isoformat(timespec="seconds"),
+                "image_path":        image_path,
+                "plate_type":        plate_type or "unknown",
+                "profile_id":        profile_id or "unknown",
+                "manual_count":      manual_count if manual_count is not None else "",
+                "colony_id":         max_cid + i,
+                "centroid_x":        a.get("centroid_x", ""),
+                "centroid_y":        a.get("centroid_y", ""),
+                "is_anomaly":        a.get("is_anomaly", ""),
+                "validation_status": "added",
+                "validated_by":      validated_by,
+            })
+            new_rows.append(blank)
+
+        with open(self.log_file, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows + new_rows)
+
+        return {"updated": updated, "added": len(new_rows)}
 
     def summary(self) -> Dict:
         """Return basic stats about the current dataset."""

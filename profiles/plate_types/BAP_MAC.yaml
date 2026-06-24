@@ -1,0 +1,6 @@
+code: BAP_MAC
+name: Biplate (BAP/MAC)
+imaging:
+  background: 'split: red / pink'
+  background_rgb: null
+  notes: ''

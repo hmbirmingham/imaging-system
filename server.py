@@ -28,6 +28,9 @@ from quantify import quantify_colonies
 from anomaly import AnomalyDetector
 from data_logger import DataLogger
 from led_pwm import get_pwm
+from profiles import ProfileStore, apply_profile
+import app_settings
+import ml_diagnostics
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO,
@@ -57,6 +60,18 @@ except Exception as e:
 _detector  = AnomalyDetector()
 _logger    = DataLogger()
 _pwm       = get_pwm()
+
+# Profile store — optional. If PyYAML is missing on the Pi, the app keeps working
+# (quantify just runs without profile-aware adjustments).
+_profiles = ProfileStore()
+try:
+    _profiles.plate_types()        # touches the store; raises if PyYAML absent
+    PROFILES_AVAILABLE = True
+    log.info("Profiles available: %d organisms, %d plate types",
+             len(_profiles.list_profiles()), len(_profiles.plate_types()))
+except Exception as e:
+    PROFILES_AVAILABLE = False
+    log.warning("Profiles unavailable: %s — running without profile features", e)
 
 # ── Camera settings state ─────────────────────────────────────────────────────
 _cam_settings: dict = {
@@ -201,6 +216,10 @@ def api_capture():
     if not CAMERA_AVAILABLE:
         return jsonify({"status": "error", "message": "No camera connected"}), 503
 
+    req        = request.get_json(silent=True) or {}
+    profile_id = req.get("profile_id") or "unknown"
+    plate_type = req.get("plate_type") or "unknown"
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     filepath = SAVE_DIR / f"plate_{ts}.jpg"
 
@@ -215,10 +234,12 @@ def api_capture():
                             if raw_meta.get(k) is not None}
 
         meta = {
-            "timestamp": datetime.now().isoformat(),
-            "filename":  filepath.name,
-            "camera":    cam_meta,
-            "settings":  dict(_cam_settings),
+            "timestamp":  datetime.now().isoformat(),
+            "filename":   filepath.name,
+            "profile_id": profile_id,
+            "plate_type": plate_type,
+            "camera":     cam_meta,
+            "settings":   dict(_cam_settings),
         }
         (META_DIR / f"{filepath.stem}.json").write_text(
             json.dumps(meta, indent=2))
@@ -235,8 +256,10 @@ def api_capture():
 
 @app.route("/api/quantify", methods=["POST"])
 def api_quantify():
-    data     = request.get_json(silent=True) or {}
-    filename = data.get("filename")
+    data       = request.get_json(silent=True) or {}
+    filename   = data.get("filename")
+    profile_id = data.get("profile_id") or "unknown"
+    plate_type = data.get("plate_type") or "unknown"
     if not filename:
         return jsonify({"status": "error", "message": "filename required"}), 400
 
@@ -249,9 +272,40 @@ def api_quantify():
     def _run():
         try:
             _push("status", {"message": "Running colony analysis…"})
-            result   = quantify_colonies(str(filepath), str(out_path))
-            result   = _detector.analyse(result)
-            _logger.log(result)
+
+            # Settings: anomaly sensitivity + plate diameter (diameter prefers the
+            # resolved profile's instrument block, which the setting merges into).
+            cfg     = app_settings.load()
+            z_thr   = float(cfg.get("anomaly_z_thresh", 2.5))
+            diam_mm = float(cfg.get("plate_diameter_mm", 90))
+            if PROFILES_AVAILABLE and profile_id not in (None, "", "unknown"):
+                try:
+                    diam_mm = float(_profiles.get(profile_id)
+                                    .get("instrument", {}).get("plate_diameter_mm", diam_mm))
+                except Exception:
+                    pass
+            inner_mm = app_settings.plate_inner_radius_mm(diam_mm)
+            _detector.stat.z_thresh = z_thr
+
+            result = quantify_colonies(str(filepath), str(out_path),
+                                       plate_inner_radius_mm=inner_mm,
+                                       anomaly_z_thresh=z_thr)
+            result = _detector.analyse(result)
+
+            # Snapshot raw detector flags before profile suppression (for the
+            # "show raw detection" diagnostic on the results panel).
+            raw_flags = {i + 1: list(c.get("anomaly_flags", []))
+                         for i, c in enumerate(result.get("contours", []))}
+
+            # Profile-aware adjustments (swarming suppression, expected size).
+            applied = None
+            if PROFILES_AVAILABLE and profile_id not in (None, "", "unknown"):
+                try:
+                    applied = apply_profile(result, _profiles.get(profile_id), plate_type)
+                except Exception as e:
+                    log.warning("Profile %s not applied: %s", profile_id, e)
+
+            _logger.log(result, plate_type=plate_type, profile_id=profile_id)
 
             colonies = [
                 {
@@ -260,9 +314,12 @@ def api_quantify():
                     "circularity":   round(c.get("circularity", 0), 4),
                     "aspect_ratio":  round(c.get("aspect_ratio", 0), 4),
                     "anomaly_flags": c.get("anomaly_flags", []),
+                    "raw_anomaly_flags": raw_flags.get(i + 1, []),
                     "ml_anomaly":    c.get("ml_anomaly"),
                     "hemolysis_delta": round(c.get("hemolysis_delta", 0), 2),
                     "stat_score":    c.get("stat_score", 0),
+                    "centroid":      list(c.get("centroid", (0, 0))),
+                    "bbox":          list(c.get("bbox", (0, 0, 0, 0))),
                 }
                 for i, c in enumerate(result.get("contours", []))
             ]
@@ -270,6 +327,9 @@ def api_quantify():
             payload = {
                 "filename":      filename,
                 "timestamp":     datetime.now().isoformat(),
+                "profile_id":    profile_id,
+                "plate_type":    plate_type,
+                "profile":       applied,
                 "count":         result["count"],
                 "anomaly_count": result.get("anomaly_count", 0),
                 "summary_stats": result.get("summary_stats", {}),
@@ -320,6 +380,182 @@ def api_result(stem: str):
     if not p.exists():
         return jsonify({"status": "no_result"}), 404
     return jsonify(json.loads(p.read_text()))
+
+
+# ── Profiles ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/profiles")
+def api_profiles():
+    if not PROFILES_AVAILABLE:
+        return jsonify({"available": False, "profiles": [], "plate_types": {}})
+    return jsonify({
+        "available":   True,
+        "profiles":    _profiles.list_profiles(),
+        "plate_types": _profiles.plate_types(),
+    })
+
+
+@app.route("/api/profile/<profile_id>", methods=["GET", "POST"])
+def api_profile(profile_id: str):
+    if not PROFILES_AVAILABLE:
+        return jsonify({"status": "error", "message": "profiles unavailable"}), 503
+    if request.method == "GET":
+        return jsonify(_profiles.get(profile_id))
+
+    # POST — save biology edits and/or a sign-off back to the YAML profile.
+    d = request.get_json(silent=True) or {}
+    try:
+        merged = _profiles.save(
+            profile_id,
+            organism_biology=d.get("organism_biology"),
+            plate_type=d.get("plate_type"),
+            plate_biology=d.get("plate_biology"),
+            instrument=d.get("instrument"),
+            signoff=d.get("signoff"),
+            display_name=d.get("display_name"),
+            plate_types=d.get("plate_types"),
+        )
+        return jsonify({"status": "ok", "profile": merged})
+    except Exception as e:
+        log.error("Profile save error: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/validate", methods=["POST"])
+def api_validate():
+    """
+    Write PhD validation for one capture: per-colony ground-truth labels +
+    corrected count to the training CSV, and (optionally) biology edits + a
+    sign-off to the organism profile. The full validation state is also saved to
+    metadata/ so reopening the capture restores the overlay.
+    """
+    d        = request.get_json(silent=True) or {}
+    filename = d.get("filename")
+    if not filename:
+        return jsonify({"status": "error", "message": "filename required"}), 400
+
+    stem        = Path(filename).stem
+    image_path  = str(SAVE_DIR / filename)
+    profile_id  = d.get("profile_id") or "unknown"
+    plate_type  = d.get("plate_type") or "unknown"
+    validated_by = d.get("validated_by") or ""
+    colonies    = d.get("colonies", [])    # [{id, is_anomaly, status, centroid}]
+    added       = d.get("added", [])       # [{centroid_x, centroid_y, is_anomaly}]
+    manual_count = d.get("manual_count")
+
+    labels = {
+        int(c["id"]): {
+            "is_anomaly": 1 if c.get("is_anomaly") else 0,
+            "status":     c.get("status", "confirmed"),
+        }
+        for c in colonies if c.get("id") is not None
+    }
+
+    csv_result = {"updated": 0, "added": 0}
+    try:
+        csv_result = _logger.apply_validation(
+            image_path, labels, added=added, manual_count=manual_count,
+            plate_type=plate_type, profile_id=profile_id, validated_by=validated_by)
+    except Exception as e:
+        log.error("Validation CSV writeback error: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+    # Optional biology edits + sign-off back to the profile YAML.
+    if PROFILES_AVAILABLE and profile_id not in (None, "", "unknown") \
+            and (d.get("organism_biology") or d.get("plate_biology") or d.get("signoff")):
+        try:
+            _profiles.save(
+                profile_id,
+                organism_biology=d.get("organism_biology"),
+                plate_type=plate_type,
+                plate_biology=d.get("plate_biology"),
+                signoff=d.get("signoff"),
+            )
+        except Exception as e:
+            log.warning("Profile writeback failed: %s", e)
+
+    # Persist the validation state so the overlay can be restored.
+    state = {
+        "filename":     filename,
+        "validated_at": datetime.now().isoformat(),
+        "validated_by": validated_by,
+        "profile_id":   profile_id,
+        "plate_type":   plate_type,
+        "manual_count": manual_count,
+        "colonies":     colonies,
+        "added":        added,
+    }
+    (META_DIR / f"validation_{stem}.json").write_text(json.dumps(state, indent=2))
+
+    _push("validated", {"filename": filename, **csv_result})
+    return jsonify({"status": "ok", **csv_result})
+
+
+@app.route("/api/validation/<stem>")
+def api_validation(stem: str):
+    p = META_DIR / f"validation_{stem}.json"
+    if not p.exists():
+        return jsonify({"status": "none"}), 404
+    return jsonify(json.loads(p.read_text()))
+
+
+@app.route("/api/plate_types")
+def api_plate_types():
+    if not PROFILES_AVAILABLE:
+        return jsonify({"available": False, "plate_types": {}})
+    return jsonify({"available": True, "plate_types": _profiles.plate_types()})
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/settings", methods=["GET", "POST"])
+def api_settings():
+    if request.method == "GET":
+        return jsonify(app_settings.load())
+    d = request.get_json(silent=True) or {}
+    cfg = app_settings.save(d)
+    # Plate diameter propagates into the profile instrument layer.
+    if "plate_diameter_mm" in d and PROFILES_AVAILABLE:
+        try:
+            _profiles.set_instrument_default("plate_diameter_mm", cfg["plate_diameter_mm"])
+        except Exception as e:
+            log.warning("Could not propagate plate diameter to profiles: %s", e)
+    return jsonify({"status": "ok", "settings": cfg})
+
+
+# ── ML diagnostics ────────────────────────────────────────────────────────────
+
+@app.route("/api/diagnostics")
+def api_diagnostics():
+    try:
+        return jsonify(ml_diagnostics.diagnostics())
+    except Exception as e:
+        log.error("Diagnostics error: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/train", methods=["POST"])
+def api_train():
+    status = ml_diagnostics.anomaly_status()
+    if not status["ready_to_train"]:
+        return jsonify({"status": "error",
+                        "message": f"Need {status['min_labels']} labelled colonies "
+                                   f"(have {status['n_labelled']})."}), 400
+
+    def _run():
+        try:
+            _push("status", {"message": "Training anomaly model…"})
+            out = ml_diagnostics.train_and_record()
+            _push("train_done", {
+                "cv_f1":  round(out["train"].get("cv_f1_mean", 0), 3),
+                "n":      out["train"].get("n_samples"),
+            })
+        except Exception as e:
+            log.error("Training error: %s", e)
+            _push("error", {"message": str(e)})
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"status": "started"})
 
 
 # ── LED ───────────────────────────────────────────────────────────────────────
@@ -375,6 +611,11 @@ def serve_capture(fn):
 @app.route("/results/<path:fn>")
 def serve_result_img(fn):
     return send_from_directory(RESULT_DIR, fn)
+
+
+@app.route("/models/<path:fn>")
+def serve_model_file(fn):
+    return send_from_directory(Path("models"), fn)
 
 
 @app.route("/api/thumbnail/<path:fn>")

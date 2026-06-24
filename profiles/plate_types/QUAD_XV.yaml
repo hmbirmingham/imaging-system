@@ -1,0 +1,6 @@
+code: QUAD_XV
+name: Quad plate (XV factor)
+imaging:
+  background: clear, quadrant
+  background_rgb: null
+  notes: ''

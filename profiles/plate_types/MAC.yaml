@@ -1,0 +1,6 @@
+code: MAC
+name: MacConkey (MAC)
+imaging:
+  background: pink-red, translucent
+  background_rgb: null
+  notes: ''

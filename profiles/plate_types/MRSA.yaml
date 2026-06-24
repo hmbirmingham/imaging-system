@@ -1,0 +1,6 @@
+code: MRSA
+name: MRSA ChromAgar
+imaging:
+  background: chromogenic base
+  background_rgb: null
+  notes: ''

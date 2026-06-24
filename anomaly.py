@@ -290,7 +290,7 @@ class AnomalyDetector:
             colony["is_anomaly"]     = stat_hit or ml_hit
             colony["combined_score"] = round(
                 (colony.get("stat_score", 0) +
-                 colony.get("ml_score", 0) or 0) / 2, 3)
+                 (colony.get("ml_score") or 0)) / 2, 3)
 
         # Build report
         anomalies = [c for c in colonies if c["is_anomaly"]]
