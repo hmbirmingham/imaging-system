@@ -217,4 +217,3 @@ picamera2        # Raspberry Pi only (system package)
 - Designed for 90–100 mm standard petri dishes
 - Backlit imaging — best with diffused, even backlight; a central hotspot reduces detection accuracy in the plate centre
 - All colony areas are expressed in mm² and are distance-invariant once the plate circle is detected
-- Commits use no co-author tags
