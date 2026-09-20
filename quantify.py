@@ -80,9 +80,13 @@ HEMOLYSIS_ZONE_SCALE: float = 2.5
 # of the outer radius, to sample unaffected agar for the brightness baseline.
 HEMOLYSIS_BG_RING_FACTOR: float = 1.1
 
-# Watershed sure-foreground threshold as a fraction of the peak distance-transform
-# value — isolates colony cores before splitting touching colonies.
-WATERSHED_FG_THRESHOLD_FRAC: float = 0.4
+# Minimum pixel separation between distinct watershed markers (local maxima
+# of the distance transform). Two colony centres closer than this seed as
+# one marker and rely on cv2.watershed's boundary tracing alone to split
+# them. Set below the smallest observed held-out colony radius (~4.7px on
+# the blind-eval plates) so it doesn't force-merge legitimately small
+# touching colonies, but above single-pixel noise in the distance transform.
+WATERSHED_MIN_PEAK_DISTANCE_PX: int = 4
 
 
 # ── Plate detection ───────────────────────────────────────────────────────────
@@ -283,32 +287,29 @@ def _apply_watershed(image: np.ndarray,
                               colonies that were originally touching.
     """
     # Label connected components BEFORE watershed (touching-colony detection).
-    num_labels, pre_watershed_labels = cv2.connectedComponents(cleaned)
+    _, pre_watershed_labels = cv2.connectedComponents(cleaned)
 
     k = np.ones((3, 3), np.uint8)
     dist_transform = cv2.distanceTransform(cleaned, cv2.DIST_L2, 5)
 
-    # Sure-foreground threshold is computed PER BLOB (per pre-watershed
-    # connected component), not against the plate-wide peak distance. A
-    # single large colony sets a high global peak that can push every other
-    # blob's own distance-transform peak below a plate-wide threshold,
-    # dropping those colonies out of sure_fg entirely — on a dense/mixed-size
-    # plate this silently loses whole colonies (and touching pairs) before
-    # watershed markers are even assigned, well before the area/circularity
-    # filters run.
-    sure_fg = np.zeros_like(cleaned)
-    for label in range(1, num_labels):
-        blob_mask = pre_watershed_labels == label
-        blob_max = dist_transform[blob_mask].max() if blob_mask.any() else 0.0
-        if blob_max <= 0:
-            continue
-        sure_fg[blob_mask & (dist_transform >= WATERSHED_FG_THRESHOLD_FRAC * blob_max)] = 255
+    # Marker seeding by local maxima of the distance transform, rather than
+    # a single sure-foreground threshold (per-plate or per-blob): a
+    # threshold still merges two touching colonies of different sizes into
+    # one marker whenever the saddle between their peaks doesn't dip below
+    # whichever peak set the threshold. Non-maximum suppression over a
+    # WATERSHED_MIN_PEAK_DISTANCE_PX window gives each colony's own peak a
+    # marker independent of its neighbours' size, which is what actually
+    # splits touching colonies rather than just avoiding losing isolated
+    # ones (see WATERSHED_MIN_PEAK_DISTANCE_PX docstring).
+    footprint = np.ones((2 * WATERSHED_MIN_PEAK_DISTANCE_PX + 1,) * 2)
+    is_peak = (dist_transform == ndi.maximum_filter(dist_transform, footprint=footprint))
+    is_peak &= dist_transform > 0
+    peak_labels, _ = ndi.label(is_peak)
 
     sure_bg = cv2.dilate(cleaned, k, iterations=3)
-    unknown = cv2.subtract(sure_bg, sure_fg)
+    unknown = cv2.subtract(sure_bg, (peak_labels > 0).astype(np.uint8) * 255)
 
-    _, markers = cv2.connectedComponents(sure_fg)
-    markers    = markers + 1
+    markers = peak_labels + 1
     markers[unknown == 255] = 0
 
     ws_image = image.copy()

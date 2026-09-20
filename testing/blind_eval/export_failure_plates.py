@@ -70,19 +70,25 @@ def _plate_geometry(gray: np.ndarray) -> Dict:
 def _watershed_with_markers(image: np.ndarray, cleaned: np.ndarray) -> np.ndarray:
     """Reimplements quantify._apply_watershed()'s segmentation to also
     surface the labeled `markers` array, which that function doesn't
-    return but which frame 3 needs to color each watershed region."""
-    from quantify import WATERSHED_FG_THRESHOLD_FRAC
+    return but which frame 3 needs to color each watershed region. Must be
+    kept in sync with quantify._apply_watershed()'s marker-seeding strategy
+    (currently: local maxima of the distance transform) so this diagnostic
+    view reflects what the real pipeline does."""
+    from scipy import ndimage as ndi
+    from quantify import WATERSHED_MIN_PEAK_DISTANCE_PX
 
     k = np.ones((3, 3), np.uint8)
     dist_transform = cv2.distanceTransform(cleaned, cv2.DIST_L2, 5)
-    _, sure_fg = cv2.threshold(
-        dist_transform, WATERSHED_FG_THRESHOLD_FRAC * dist_transform.max(), 255, 0)
-    sure_fg = np.uint8(sure_fg)
-    sure_bg = cv2.dilate(cleaned, k, iterations=3)
-    unknown = cv2.subtract(sure_bg, sure_fg)
 
-    _, markers = cv2.connectedComponents(sure_fg)
-    markers = markers + 1
+    footprint = np.ones((2 * WATERSHED_MIN_PEAK_DISTANCE_PX + 1,) * 2)
+    is_peak = (dist_transform == ndi.maximum_filter(dist_transform, footprint=footprint))
+    is_peak &= dist_transform > 0
+    peak_labels, _ = ndi.label(is_peak)
+
+    sure_bg = cv2.dilate(cleaned, k, iterations=3)
+    unknown = cv2.subtract(sure_bg, (peak_labels > 0).astype(np.uint8) * 255)
+
+    markers = peak_labels + 1
     markers[unknown == 255] = 0
     return cv2.watershed(image.copy(), markers)
 
