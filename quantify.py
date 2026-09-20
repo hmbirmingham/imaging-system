@@ -593,6 +593,7 @@ def quantify_colonies(
             "illumination_corrected": illumination_corrected,
             "cleaned": cleaned,
             "watershed_markers": watershed_markers,
+            "valid_contours": valid_contours,
         }
     return result
 

@@ -39,7 +39,7 @@ OUTPUT_DIR_DEFAULT = Path("testing/blind_eval/failure_analysis")
 TOP_N_DEFAULT = 3
 
 
-def _label_color_image(markers: np.ndarray) -> np.ndarray:
+def label_color_image(markers: np.ndarray) -> np.ndarray:
     vis = np.zeros((*markers.shape, 3), np.uint8)
     rng = np.random.default_rng(42)
     for lbl in np.unique(markers):
@@ -71,7 +71,7 @@ def export_plate(image_path: str, unmatched_gt: List[Dict],
     cv2.imwrite(str(out_dir / "02_binary_threshold.png"),
                 _caption(binary_vis, f"{label} - binary threshold"))
 
-    watershed_vis = _label_color_image(intermediates["watershed_markers"])
+    watershed_vis = label_color_image(intermediates["watershed_markers"])
     for gt in unmatched_gt:
         cv2.circle(watershed_vis, (int(gt["cx"]), int(gt["cy"])), int(gt["radius_px"]) + 4,
                     (0, 0, 255), 2)
