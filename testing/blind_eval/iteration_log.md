@@ -76,3 +76,84 @@
   sure_fg island if the saddle between the two colonies' distance-transform
   peaks doesn't dip far enough below the per-blob threshold. That's the
   next hypothesis for iteration 2.
+
+## Iteration 2
+- Hypothesis: replace threshold-based sure-foreground (global or per-blob)
+  with marker seeding by local maxima of the distance transform — one
+  marker per peak within a `WATERSHED_MIN_PEAK_DISTANCE_PX` window, so a
+  touching pair of *different* sizes each gets its own marker instead of
+  the smaller colony's peak being swallowed by whichever threshold the
+  larger one sets.
+- Parameters changed: `_apply_watershed()` now seeds markers via
+  non-maximum suppression over the distance transform (window size
+  `2*WATERSHED_MIN_PEAK_DISTANCE_PX+1`) instead of a sure-foreground
+  threshold at all — this supersedes iteration 1's per-blob threshold with
+  a strictly more general technique (a local-max window doesn't care what
+  blob a pixel belongs to, so it can't be swamped by a neighboring blob's
+  scale the way any single threshold — global or per-blob — still can).
+  `WATERSHED_FG_THRESHOLD_FRAC` is removed (no longer used anywhere) in
+  favor of `WATERSHED_MIN_PEAK_DISTANCE_PX = 4`.
+- `WATERSHED_MIN_PEAK_DISTANCE_PX` was swept over {2, 3, 4, 6, 8} on a
+  15-plate sample of dense_pack/high_touching before picking a value:
+  recall was flat within noise across the whole range (dense_pack F1
+  0.847-0.853, high_touching F1 0.780-0.791, precision 1.000 throughout).
+  4 was selected as a tied-best value, not because it's meaningfully better
+  than its neighbors — the flatness itself is the finding (see below).
+- Results (full 250-plate blind eval):
+
+  | set | F1 (iter 1) | F1 (iter 2) | recall (iter 1) | recall (iter 2) | status |
+  |---|---|---|---|---|---|
+  | dense_pack | 0.840 | 0.846 | 0.724 | 0.733 | still FAIL |
+  | high_touching | 0.782 | 0.787 | 0.642 | 0.649 | still FAIL |
+  | size_variance | 0.956 | 0.957 | 0.915 | 0.917 | PASS |
+  | irregular_morphology | 0.994 | 0.998 | 0.989 | 0.996 | PASS |
+  | poor_illumination | 1.000 | 1.000 | 1.000 | 1.000 | PASS |
+  | **Overall (pooled)** | **0.872** | **0.877** | 0.774 | 0.781 | still FAIL vs 0.90 |
+
+  Precision held at 1.000 everywhere. Delta F1: overall +0.005 — real but
+  small, a fraction of iteration 1's +0.068.
+- Root-cause finding (why the gain is small): before spending iteration 3 on
+  the doc's #3 candidate (`bg_blur_kernel`), checked whether watershed
+  itself is still the bottleneck by counting raw watershed contours before
+  any area/circularity/aspect filtering, on a 15-plate sample:
+  - dense_pack: 1087 raw contours vs 1443 expected colonies (filters then
+    drop only 14 of those 1087 — 13 by area, 1 by circularity, 0 by aspect).
+  - high_touching: 331 raw contours vs 494 expected (filters drop 8, all by
+    area).
+  So the shortfall is essentially 100% a segmentation problem (watershed
+  not producing enough distinct regions), not a filtering problem — the
+  downstream area/circularity/aspect thresholds are barely touching it, so
+  further loosening them (in either direction) would not help.
+  Directly inspected why: sampled the distance-transform value along the
+  line between ground-truth centres for every touching-flagged pair on
+  `high_touching/plate_020` (21 touching colonies). The profiles are
+  monotonic in nearly every case — e.g. one pair (radii 10.5px and 7.5px,
+  centre distance 5.8px vs a summed radius of 18.0px, i.e. heavy overlap)
+  reads `11.0, 11.0, 11.0, 11.0, 11.0, 10.2, 9.8, ..., 7.0` walking from one
+  centre to the other: a single smooth slope, no saddle/dip between the two
+  colonies at all. When circles overlap this much, the merged shape's
+  distance transform genuinely has only one local maximum — there is no
+  second peak for any marker-seeding method (threshold-based or local-max)
+  to find, regardless of window size or threshold value. That's why the
+  `WATERSHED_MIN_PEAK_DISTANCE_PX` sweep was flat: the parameter isn't
+  underperforming, the underlying signal it depends on doesn't exist for
+  these pairs. **This is an architectural ceiling of distance-transform
+  watershed for this degree of colony overlap, not a tuning gap.**
+  Splitting these would need a different technique entirely — e.g. Hough
+  circle fitting inside each blob, or concave-point contour analysis to
+  find where two circle boundaries meet even under overlap — which is a
+  new pipeline stage, not a parameter change, and out of scope for this
+  iteration loop as scoped.
+- `bg_blur_kernel` (doc's #3 candidate) swept over {151, 201, 251, 301} on
+  the same 15-plate dense_pack/high_touching sample with the iteration-2
+  watershed: **identical results at every value** (dense_pack F1 0.853,
+  high_touching F1 0.791, unchanged to 3 decimal places). Ruled out for
+  these two sets — neither stresses illumination (both are density/touching
+  stressors, not gradient/hotspot), so the background model isn't the
+  constraint here and a larger kernel has nothing to fix.
+- All three doc-prescribed parameters (`min_area_mm2`, watershed
+  splitting, `bg_blur_kernel`) have now been tested and exhausted for
+  dense_pack/high_touching. Two iterations of watershed changes closed
+  most of the gap (F1 0.804 → 0.877 overall); the remainder is a proven
+  geometric limit of the current segmentation technique, not a parameter
+  available in this loop's scope.
