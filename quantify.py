@@ -283,13 +283,27 @@ def _apply_watershed(image: np.ndarray,
                               colonies that were originally touching.
     """
     # Label connected components BEFORE watershed (touching-colony detection).
-    _, pre_watershed_labels = cv2.connectedComponents(cleaned)
+    num_labels, pre_watershed_labels = cv2.connectedComponents(cleaned)
 
     k = np.ones((3, 3), np.uint8)
     dist_transform = cv2.distanceTransform(cleaned, cv2.DIST_L2, 5)
-    _, sure_fg = cv2.threshold(
-        dist_transform, WATERSHED_FG_THRESHOLD_FRAC * dist_transform.max(), 255, 0)
-    sure_fg = np.uint8(sure_fg)
+
+    # Sure-foreground threshold is computed PER BLOB (per pre-watershed
+    # connected component), not against the plate-wide peak distance. A
+    # single large colony sets a high global peak that can push every other
+    # blob's own distance-transform peak below a plate-wide threshold,
+    # dropping those colonies out of sure_fg entirely — on a dense/mixed-size
+    # plate this silently loses whole colonies (and touching pairs) before
+    # watershed markers are even assigned, well before the area/circularity
+    # filters run.
+    sure_fg = np.zeros_like(cleaned)
+    for label in range(1, num_labels):
+        blob_mask = pre_watershed_labels == label
+        blob_max = dist_transform[blob_mask].max() if blob_mask.any() else 0.0
+        if blob_max <= 0:
+            continue
+        sure_fg[blob_mask & (dist_transform >= WATERSHED_FG_THRESHOLD_FRAC * blob_max)] = 255
+
     sure_bg = cv2.dilate(cleaned, k, iterations=3)
     unknown = cv2.subtract(sure_bg, sure_fg)
 
