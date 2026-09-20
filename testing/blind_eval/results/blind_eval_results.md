@@ -8,18 +8,18 @@ Target: F1 > 0.90 on each held-out set.
 
 | set | n | precision | recall | F1 | mean per-plate F1 | count error % | anomaly precision | anomaly recall | anomaly F1 | pass |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `dense_pack` | 50 | 1.000 | 0.637 | 0.778 | 0.778 | 36.15 | 0.329 | 0.132 | 0.189 | FAIL |
-| `high_touching` | 50 | 1.000 | 0.569 | 0.725 | 0.720 | 43.12 | 0.500 | 0.078 | 0.135 | FAIL |
-| `irregular_morphology` | 50 | 1.000 | 0.853 | 0.920 | 0.917 | 14.76 | 0.172 | 0.263 | 0.208 | PASS |
-| `poor_illumination` | 50 | 1.000 | 0.842 | 0.914 | 0.911 | 16.02 | 0.000 | 1.000 | 0.000 | PASS |
-| `size_variance` | 50 | 1.000 | 0.757 | 0.862 | 0.853 | 24.20 | 0.000 | 1.000 | 0.000 | FAIL |
+| `dense_pack` | 50 | 1.000 | 0.724 | 0.840 | 0.840 | 27.48 | 0.333 | 0.150 | 0.206 | FAIL |
+| `high_touching` | 50 | 1.000 | 0.642 | 0.782 | 0.777 | 35.82 | 0.500 | 0.100 | 0.166 | FAIL |
+| `irregular_morphology` | 50 | 1.000 | 0.989 | 0.994 | 0.995 | 0.99 | 0.094 | 0.158 | 0.118 | PASS |
+| `poor_illumination` | 50 | 1.000 | 1.000 | 1.000 | 1.000 | 0.00 | 0.000 | 1.000 | 0.000 | PASS |
+| `size_variance` | 50 | 1.000 | 0.915 | 0.956 | 0.953 | 8.43 | 0.000 | 1.000 | 0.000 | PASS |
 
 ## Overall (pooled across all held-out sets)
 
 - n plates: 250
 - Precision: 1.000
-- Recall: 0.672
-- **F1: 0.804** (FAIL vs target 0.90)
-- Mean per-plate F1: 0.836
-- Mean count error: 26.85%
-- Anomaly precision / recall / F1: 0.293 / 0.118 / 0.169
+- Recall: 0.774
+- **F1: 0.872** (FAIL vs target 0.90)
+- Mean per-plate F1: 0.913
+- Mean count error: 14.55%
+- Anomaly precision / recall / F1: 0.287 / 0.134 / 0.183
