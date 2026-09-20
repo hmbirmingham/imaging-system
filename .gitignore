@@ -10,9 +10,12 @@ venv/
 # Compiled C extension — rebuilt per-platform by led_pwm.py, never commit
 *.so
 
-# Captured images — too large for git
-captures/
-results/
+# Captured images — too large for git. Anchored to repo root: an unanchored
+# `results/` also matched testing/blind_eval/results/, which must be
+# committed (see below) — caught while committing the first blind-eval
+# results snapshot.
+/captures/
+/results/
 
 # ML model — regenerated from training data
 models/
