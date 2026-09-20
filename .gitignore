@@ -59,3 +59,8 @@ testing/blind_eval/plates/
 # Session handoff notes — working notes for continuity between sessions,
 # not project documentation.
 /dev-notes/
+
+# Thesis drafting workspace — curated figures/data/summaries pulled from
+# committed results for writing the thesis itself. Personal drafting
+# material, not project documentation; never published to GitHub.
+/thesis-drafting/
