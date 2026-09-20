@@ -1,0 +1,71 @@
+{
+  "by_set": {
+    "dense_pack": {
+      "n_plates": 50,
+      "precision": 1.0,
+      "recall": 0.7327114175623606,
+      "f1": 0.8457397003745318,
+      "anomaly_precision": 0.3550488599348534,
+      "anomaly_recall": 0.18016528925619835,
+      "anomaly_f1": 0.2390350877192982,
+      "mean_count_error_pct": 26.601445135976373,
+      "mean_per_plate_f1": 0.8457399861361167
+    },
+    "irregular_morphology": {
+      "n_plates": 50,
+      "precision": 1.0,
+      "recall": 0.9963459196102314,
+      "f1": 0.9981696156192801,
+      "anomaly_precision": 0.25842696629213485,
+      "anomaly_recall": 0.6052631578947368,
+      "anomaly_f1": 0.3622047244094488,
+      "mean_count_error_pct": 0.34137426900584794,
+      "mean_per_plate_f1": 0.9982428695977084
+    },
+    "poor_illumination": {
+      "n_plates": 50,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "anomaly_precision": 0.0,
+      "anomaly_recall": 1.0,
+      "anomaly_f1": 0.0,
+      "mean_count_error_pct": 0.0,
+      "mean_per_plate_f1": 1.0
+    },
+    "size_variance": {
+      "n_plates": 50,
+      "precision": 1.0,
+      "recall": 0.9173859432799013,
+      "f1": 0.9569131832797428,
+      "anomaly_precision": 0.0,
+      "anomaly_recall": 1.0,
+      "anomaly_f1": 0.0,
+      "mean_count_error_pct": 8.2305883486998,
+      "mean_per_plate_f1": 0.9544922711040517
+    },
+    "high_touching": {
+      "n_plates": 50,
+      "precision": 1.0,
+      "recall": 0.6494047619047619,
+      "f1": 0.7874413569108625,
+      "anomaly_precision": 0.5076923076923077,
+      "anomaly_recall": 0.11956521739130435,
+      "anomaly_f1": 0.1935483870967742,
+      "mean_count_error_pct": 35.04008749405763,
+      "mean_per_plate_f1": 0.7825214662981417
+    }
+  },
+  "overall": {
+    "n_plates": 250,
+    "precision": 1.0,
+    "recall": 0.7808689869208602,
+    "f1": 0.8769527603161761,
+    "anomaly_precision": 0.31714876033057854,
+    "anomaly_recall": 0.17055555555555554,
+    "anomaly_f1": 0.22182080924855493,
+    "mean_count_error_pct": 14.04269904954794,
+    "mean_per_plate_f1": 0.916199318627203
+  },
+  "target_f1": 0.9
+}
