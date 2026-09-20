@@ -157,3 +157,36 @@
   most of the gap (F1 0.804 → 0.877 overall); the remainder is a proven
   geometric limit of the current segmentation technique, not a parameter
   available in this loop's scope.
+
+## Stopping decision — after iteration 2
+
+Stopped after 2 of the allowed 5 iteration cycles, below the F1 > 0.90
+target, by explicit decision rather than by exhausting the cycle count.
+
+- **Final overall F1: 0.877** (target 0.90). Precision 1.000 on every set,
+  every cycle — the pipeline never invented a colony; recall is the entire
+  story, on both what was fixed and what remains.
+- **3 of 5 held-out sets pass:** `size_variance` (0.957), `poor_illumination`
+  (1.000), `irregular_morphology` (0.998).
+- **2 of 5 fail:** `dense_pack` (0.846), `high_touching` (0.787).
+- **Why stop before 5 cycles:** all three parameters this loop was scoped to
+  tune (`min_area_mm2`, watershed splitting, `bg_blur_kernel`) were tested to
+  exhaustion — one ruled out empirically before spending a cycle on it, one
+  fixed twice for the bulk of the gain, one ruled out by direct sweep with
+  zero effect. What's left on dense_pack/high_touching is not a parameter
+  gap: sampling the distance-transform between touching ground-truth colony
+  centres showed the merged shape has only one local maximum whenever two
+  colonies overlap heavily — there is no second peak for any threshold or
+  window-based marker method to find, watershed or otherwise, at this
+  overlap level. Burning the remaining 3 cycles on further variants of the
+  same three parameters would not have changed this; closing it needs a
+  different segmentation technique (Hough-circle fitting inside merged
+  blobs, or concave-point contour splitting), which is new pipeline
+  architecture, not a parameter tune, and out of this loop's scope.
+- **This gap is real and goes in the memo's limitations section as-is:**
+  the pipeline is commercially comparable to published open-source counter
+  accuracy (~93-97%, see Branch 1's benchmark comparison) on 3 of 5
+  held-out stress conditions, including the ones stressing illumination,
+  morphology irregularity, and size variance. It underperforms specifically
+  on plates with dense, heavily-overlapping colonies — a known, named,
+  measured limitation, not a hidden one.
