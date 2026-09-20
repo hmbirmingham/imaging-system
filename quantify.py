@@ -302,7 +302,7 @@ def _apply_watershed(image: np.ndarray,
                               regions (e.g. stage-by-stage figure export).
     """
     # Label connected components BEFORE watershed (touching-colony detection).
-    _, pre_watershed_labels = cv2.connectedComponents(cleaned)
+    num_blobs, pre_watershed_labels = cv2.connectedComponents(cleaned)
 
     k = np.ones((3, 3), np.uint8)
     dist_transform = cv2.distanceTransform(cleaned, cv2.DIST_L2, 5)
@@ -321,10 +321,29 @@ def _apply_watershed(image: np.ndarray,
     is_peak &= dist_transform > 0
     peak_labels, _ = ndi.label(is_peak)
 
-    sure_bg = cv2.dilate(cleaned, k, iterations=3)
-    unknown = cv2.subtract(sure_bg, (peak_labels > 0).astype(np.uint8) * 255)
+    # A single-peak-per-marker seed is a single point (or tiny cluster) —
+    # exactly what's needed to split a multi-colony blob, but for a blob
+    # that's already just one colony it gives cv2.watershed's flood-fill (on
+    # the real image, following its own gradients, not the binary mask) a
+    # much smaller starting basin than the old single blob-wide threshold
+    # did, which measurably undersizes the final contour (~10% smaller area
+    # on isolated colonies — caught by testing/continuous's Track 1 area
+    # accuracy check, which testing/blind_eval doesn't score at all). Since
+    # a lone peak means there was nothing to split in the first place,
+    # expand that blob's marker to its full pre-watershed extent — the old,
+    # area-accurate behavior — and reserve the tight peak-point markers for
+    # blobs where 2+ peaks actually indicate touching colonies to separate.
+    sure_fg = (peak_labels > 0).astype(np.uint8) * 255
+    for label in range(1, num_blobs):
+        blob_mask = pre_watershed_labels == label
+        if len(np.unique(peak_labels[blob_mask & (peak_labels > 0)])) == 1:
+            sure_fg[blob_mask] = 255
 
-    markers = peak_labels + 1
+    sure_bg = cv2.dilate(cleaned, k, iterations=3)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    _, markers = cv2.connectedComponents(sure_fg)
+    markers = markers + 1
     markers[unknown == 255] = 0
 
     ws_image = image.copy()

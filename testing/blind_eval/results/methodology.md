@@ -61,7 +61,7 @@ Where a literature source reports **mean count error %** (the independent
 OpenCFU re-benchmark, ColonyDoc-It), that is roughly the same statistic as
 this validation's own `mean_count_error_pct` — both express relative
 deviation from a true/reference count — so those rows are the closest
-thing to an apples-to-apples read: our pipeline's pooled 14.04% (2.86% on
+thing to an apples-to-apples read: our pipeline's pooled 15.75% (5.31% on
 the 3/5 conditions that pass this validation's F1 > 0.90 target) sits well
 inside the range those two papers report for real automated counters
 (18.3-59.7% for ColonyDoc-It depending on medium, 50.31% for OpenCFU on a
