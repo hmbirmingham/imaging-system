@@ -10,13 +10,19 @@ import numpy as np
 
 from testing.continuous.synthetic_data import (
     FeatureScenario,
+    HELD_OUT_CIRCULARITY_NOISE_STD_RANGE,
+    HELD_OUT_COLONY_COUNT_RANGE,
+    HELD_OUT_SET_NAMES,
     MIN_SUPPORTED_CAMERA_DISTANCE_FACTOR,
     PlateScenario,
     expected_px_per_mm,
     generate_colony_features,
+    generate_held_out_plate,
+    generate_held_out_scenario,
     generate_plate_image,
 )
 from anomaly import ML_FEATURES
+from quantify import NON_CIRCULAR_THRESHOLD
 import quantify as q
 
 
@@ -136,3 +142,109 @@ def test_generate_colony_features_anomaly_fraction_respected():
     scenario = FeatureScenario(n_samples=500, seed=4, anomaly_fraction=0.3, label_noise=0.0)
     df = generate_colony_features(scenario)
     assert df["true_is_anomaly"].sum() == round(500 * 0.3)
+
+
+# ── Blind validation: held-out parameter overrides ──────────────────────────
+
+def test_default_plate_scenario_unaffected_by_new_override_fields():
+    """Every held-out override field defaults to None/0.0 — an unrelated
+    scenario (as used by the continuous harness) must render byte-identical
+    to before these fields existed. Pinned against a fixed seed so any
+    accidental extra rng draw (e.g. from a non-short-circuited check) would
+    be caught by a changed image/ground truth rather than passing silently."""
+    scenario = PlateScenario(seed=42, illumination="gradient", density="dense",
+                              artifacts=("streak", "debris"))
+    img, gt = generate_plate_image(scenario)
+    assert gt["expected_count"] == 29
+    assert gt["touching_pairs"] == 6
+    assert all(c["circularity"] == 1.0 for c in gt["colonies"])
+
+
+def test_colony_count_range_override_widens_density():
+    lo, hi = HELD_OUT_COLONY_COUNT_RANGE
+    _, gt = generate_plate_image(PlateScenario(seed=7, density="dense",
+                                                colony_count_range=HELD_OUT_COLONY_COUNT_RANGE))
+    assert lo <= gt["expected_count"] <= hi
+
+
+def test_circularity_noise_reduces_measured_circularity():
+    lo, _ = HELD_OUT_CIRCULARITY_NOISE_STD_RANGE
+    _, gt_noisy = generate_plate_image(PlateScenario(seed=8, circularity_noise_std=lo))
+    _, gt_clean = generate_plate_image(PlateScenario(seed=8, circularity_noise_std=0.0))
+    assert all(c["circularity"] == 1.0 for c in gt_clean["colonies"])
+    assert any(c["circularity"] < 1.0 for c in gt_noisy["colonies"])
+    assert all(0.0 <= c["circularity"] <= 1.0 for c in gt_noisy["colonies"])
+
+
+def test_is_anomaly_matches_deterministic_flags_only():
+    """is_anomaly must exactly equal (touching OR below NON_CIRCULAR_THRESHOLD)
+    — the two flags knowable at draw time without the plate-wide Z-score
+    stats quantify.py's own relative flags depend on."""
+    for seed in (100, 101, 102):
+        _, gt = generate_plate_image(PlateScenario(seed=seed, density="dense",
+                                                     circularity_noise_std=0.2))
+        for c in gt["colonies"]:
+            expected = c["touching"] or c["circularity"] < NON_CIRCULAR_THRESHOLD
+            assert c["is_anomaly"] == expected
+            assert ("touching_colony" in c["anomaly_type"]) == c["touching"]
+            assert ("non_circular" in c["anomaly_type"]) == (c["circularity"] < NON_CIRCULAR_THRESHOLD)
+
+
+def test_touching_rate_override_applies_regardless_of_density():
+    """Prior behavior only ever forced touching on density='dense'; the
+    override must work on any density tier."""
+    _, gt = generate_plate_image(PlateScenario(seed=9, density="sparse", touching_rate=1.0))
+    assert gt["touching_pairs"] >= 1
+
+
+def test_hotspot_magnitude_override_changes_illumination_but_not_default():
+    default_field, _ = generate_plate_image(PlateScenario(seed=10, illumination="hotspot"))
+    overridden_field, _ = generate_plate_image(
+        PlateScenario(seed=10, illumination="hotspot", hotspot_magnitude_pct=0.45))
+    assert not np.array_equal(default_field, overridden_field)
+
+
+def test_size_variance_ratio_widens_colony_radius_spread():
+    _, gt = generate_plate_image(PlateScenario(seed=12, density="dense", size_variance_ratio=4.5))
+    radii = [c["radius_mm"] for c in gt["colonies"]]
+    assert max(radii) / min(radii) > 2.0  # well beyond COLONY_RADIUS_MM_RANGE's ~3.67x cap headroom
+
+
+def test_invalid_held_out_override_parameters_raise():
+    import pytest
+    with pytest.raises(ValueError):
+        PlateScenario(seed=1, colony_count_range=(0, 10))
+    with pytest.raises(ValueError):
+        PlateScenario(seed=1, colony_count_range=(20, 10))
+    with pytest.raises(ValueError):
+        PlateScenario(seed=1, circularity_noise_std=-0.1)
+    with pytest.raises(ValueError):
+        PlateScenario(seed=1, hotspot_magnitude_pct=1.5)
+    with pytest.raises(ValueError):
+        PlateScenario(seed=1, size_variance_ratio=1.0)
+    with pytest.raises(ValueError):
+        PlateScenario(seed=1, touching_rate=1.5)
+
+
+def test_generate_held_out_scenario_rejects_unknown_set():
+    import pytest
+    with pytest.raises(ValueError):
+        generate_held_out_scenario("not_a_real_set", seed=1)
+
+
+def test_generate_held_out_plate_is_deterministic_and_tagged():
+    for set_name in HELD_OUT_SET_NAMES:
+        img1, gt1 = generate_held_out_plate(set_name, seed=555)
+        img2, gt2 = generate_held_out_plate(set_name, seed=555)
+        assert np.array_equal(img1, img2)
+        assert gt1 == gt2
+        assert gt1["held_out_set"] == set_name
+
+
+def test_generate_held_out_plate_different_seeds_sample_different_stress_values():
+    """Each set samples its stressed axis from the seed, so two different
+    seeds in the same set should (almost always) differ in the sampled
+    value, not just in colony placement."""
+    _, gt1 = generate_held_out_plate("irregular_morphology", seed=1)
+    _, gt2 = generate_held_out_plate("irregular_morphology", seed=2)
+    assert gt1["scenario"]["circularity_noise_std"] != gt2["scenario"]["circularity_noise_std"]

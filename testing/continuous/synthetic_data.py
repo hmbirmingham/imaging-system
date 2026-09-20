@@ -42,6 +42,23 @@ from quantify import (
 )
 from anomaly import ML_FEATURES
 
+# ── Blind validation: held-out parameter ranges ────────────────────────────
+# Deliberately never sampled by the continuous harness's own scenarios above
+# (DENSITY_RANGES tops out at 40, touching is fixed at 25% and only on
+# "dense", hotspot magnitude and colony-size spread are hardcoded literals
+# below). Blind evaluation needs conditions the pipeline's own dev/tuning
+# loop never saw — see testing/blind_eval/.
+#
+# Each entry is (low, high) for the stressed axis; a plate in that held-out
+# set samples one value from this range while every other axis stays at its
+# ordinary default, so a failure can be attributed to the one axis that
+# changed rather than a tangle of simultaneous shifts.
+HELD_OUT_COLONY_COUNT_RANGE: Tuple[int, int] = (80, 120)
+HELD_OUT_CIRCULARITY_NOISE_STD_RANGE: Tuple[float, float] = (0.15, 0.25)
+HELD_OUT_HOTSPOT_MAGNITUDE_PCT_RANGE: Tuple[float, float] = (0.35, 0.50)
+HELD_OUT_SIZE_VARIANCE_RATIO_RANGE: Tuple[float, float] = (3.5, 5.0)
+HELD_OUT_TOUCHING_RATE_RANGE: Tuple[float, float] = (0.25, 0.40)
+
 # ── Track 1: plate image generation ────────────────────────────────────────
 
 ILLUMINATIONS = ("uniform", "gradient", "hotspot", "low_contrast")
@@ -89,13 +106,26 @@ MIN_SUPPORTED_CAMERA_DISTANCE_FACTOR = round(0.25 / REFERENCE_PLATE_RADIUS_FRACT
 
 @dataclass
 class PlateScenario:
-    """One row of the Track 1 test matrix."""
+    """One row of the Track 1 test matrix.
+
+    The five `Optional` fields below are blind-validation overrides, each
+    independently defaulted to None so every existing call site (continuous
+    harness scenarios) renders byte-for-byte as before. Setting one lets a
+    held-out plate push a single axis past what DENSITY_RANGES / the fixed
+    hotspot magnitude / the fixed touching probability / COLONY_RADIUS_MM_RANGE
+    otherwise allow, without touching those defaults for anyone else.
+    """
     seed: int
     illumination: str = "uniform"
     density: str = "moderate"
     artifacts: Tuple[str, ...] = ()
     camera_distance_factor: float = 1.0   # 1.0 = reference standoff distance
     image_size: int = REFERENCE_IMAGE_SIZE
+    colony_count_range: Optional[Tuple[int, int]] = None
+    circularity_noise_std: float = 0.0
+    hotspot_magnitude_pct: Optional[float] = None
+    size_variance_ratio: Optional[float] = None
+    touching_rate: Optional[float] = None
 
     def __post_init__(self):
         if self.illumination not in ILLUMINATIONS:
@@ -107,6 +137,18 @@ class PlateScenario:
                 raise ValueError(f"Unknown artifact type: {a}")
         if self.camera_distance_factor <= 0:
             raise ValueError("camera_distance_factor must be positive")
+        if self.colony_count_range is not None:
+            lo, hi = self.colony_count_range
+            if lo <= 0 or hi < lo:
+                raise ValueError(f"Invalid colony_count_range: {self.colony_count_range}")
+        if self.circularity_noise_std < 0:
+            raise ValueError("circularity_noise_std must be non-negative")
+        if self.hotspot_magnitude_pct is not None and not (0 < self.hotspot_magnitude_pct <= 1):
+            raise ValueError("hotspot_magnitude_pct must be in (0, 1]")
+        if self.size_variance_ratio is not None and self.size_variance_ratio <= 1:
+            raise ValueError("size_variance_ratio must be greater than 1")
+        if self.touching_rate is not None and not (0 <= self.touching_rate <= 1):
+            raise ValueError("touching_rate must be in [0, 1]")
 
 
 def expected_px_per_mm(plate_radius_px: float,
@@ -123,8 +165,15 @@ def expected_px_per_mm(plate_radius_px: float,
     return inner_radius_px / plate_inner_radius_mm if inner_radius_px > 0 else 1.0
 
 
-def _illumination_field(size: int, kind: str, rng: np.random.Generator) -> np.ndarray:
-    """Return an (size, size) float32 additive brightness field, roughly zero-mean."""
+def _illumination_field(size: int, kind: str, rng: np.random.Generator,
+                         hotspot_magnitude_pct: Optional[float] = None) -> np.ndarray:
+    """Return an (size, size) float32 additive brightness field, roughly zero-mean.
+
+    `hotspot_magnitude_pct`, when given, overrides the hotspot kind's default
+    70.0-intensity-unit magnitude (~35% of the standard 200 agar level) with
+    `hotspot_magnitude_pct * 200` — used for held-out "poor illumination"
+    plates. None preserves the exact prior constant for every other caller.
+    """
     yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
     if kind == "uniform":
         return np.zeros((size, size), np.float32)
@@ -133,15 +182,65 @@ def _illumination_field(size: int, kind: str, rng: np.random.Generator) -> np.nd
         grad = (xx + yy) / (2 * size)
         return (grad - grad.mean()) * 60.0
     if kind == "hotspot":
+        magnitude = 70.0 if hotspot_magnitude_pct is None else hotspot_magnitude_pct * 200.0
         cx = rng.uniform(size * 0.3, size * 0.7)
         cy = rng.uniform(size * 0.3, size * 0.7)
         sigma = size * 0.25
         hotspot = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma ** 2))
-        return hotspot * 70.0 - hotspot.mean() * 70.0
+        return hotspot * magnitude - hotspot.mean() * magnitude
     if kind == "low_contrast":
         # No spatial structure — contrast is instead reduced at draw time.
         return np.zeros((size, size), np.float32)
     raise ValueError(f"Unknown illumination: {kind}")
+
+
+def _radius_range_for_variance_ratio(ratio: float, center_mm: float = 1.4) -> Tuple[float, float]:
+    """(lo, hi) mm colony-radius range with hi/lo == ratio, geometrically
+    centered on `center_mm` (COLONY_RADIUS_MM_RANGE's own rough center) so a
+    held-out size-variance plate stresses spread rather than shifting the
+    whole population larger or smaller."""
+    half = math.sqrt(ratio)
+    return (center_mm / half, center_mm * half)
+
+
+def _draw_colony_shape(canvas: np.ndarray, cx: float, cy: float, radius_px: float,
+                        fill_value: float, circularity_noise_std: float,
+                        rng: np.random.Generator) -> float:
+    """Draw one colony and return its actual circularity.
+
+    With no noise this is a plain filled circle (circularity 1.0 by
+    construction). With circularity_noise_std > 0, the boundary is instead a
+    jittered polygon — irregular colony morphology, one of the held-out
+    stress axes — and circularity is measured from the rendered pixels using
+    the same 4*pi*area/perimeter**2 formula as quantify._circularity(), so
+    ground truth reflects what the pipeline would actually measure rather
+    than an analytic guess about an irregular polygon's shape.
+    """
+    if circularity_noise_std <= 0:
+        cv2.circle(canvas, (int(cx), int(cy)), int(round(radius_px)), fill_value, -1)
+        return 1.0
+
+    n_pts = 20
+    angles = np.linspace(0, 2 * math.pi, n_pts, endpoint=False)
+    jitter = np.clip(rng.normal(1.0, circularity_noise_std, size=n_pts), 0.4, 1.8)
+    pts = np.stack([cx + radius_px * jitter * np.cos(angles),
+                    cy + radius_px * jitter * np.sin(angles)], axis=1)
+    cv2.fillPoly(canvas, [pts.astype(np.int32)], fill_value)
+
+    # Measure circularity from a small local mask (not the full plate canvas)
+    # — held-out generation draws up to 120 colonies on 250 plates, and a
+    # full-frame findContours per colony would dominate generation time.
+    pad = int(radius_px * 2.2) + 4
+    local = np.zeros((pad * 2, pad * 2), np.uint8)
+    local_pts = pts - [cx - pad, cy - pad]
+    cv2.fillPoly(local, [local_pts.astype(np.int32)], 255)
+    contours, _ = cv2.findContours(local, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return 1.0
+    contour = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(contour)
+    perimeter = cv2.arcLength(contour, True)
+    return (4 * math.pi * area / perimeter ** 2) if perimeter > 0 else 0.0
 
 
 def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
@@ -171,7 +270,8 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
     agar_level = 150 if scenario.illumination == "low_contrast" else 200
     colony_delta = 15 if scenario.illumination == "low_contrast" else 60
 
-    field = _illumination_field(size, scenario.illumination, rng)
+    field = _illumination_field(size, scenario.illumination, rng,
+                                 hotspot_magnitude_pct=scenario.hotspot_magnitude_pct)
     canvas = np.zeros((size, size), np.float32)
     canvas[:] = 0  # background outside plate stays black (matches production)
     plate_mask = np.zeros((size, size), np.uint8)
@@ -179,9 +279,12 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
     agar = np.clip(agar_level + field, 40, 255)
     canvas = np.where(plate_mask > 0, agar, canvas)
 
-    lo_mm, hi_mm = COLONY_RADIUS_MM_RANGE
-    lo_n, hi_n = DENSITY_RANGES[scenario.density]
+    lo_mm, hi_mm = (_radius_range_for_variance_ratio(scenario.size_variance_ratio)
+                    if scenario.size_variance_ratio is not None else COLONY_RADIUS_MM_RANGE)
+    lo_n, hi_n = scenario.colony_count_range or DENSITY_RANGES[scenario.density]
     n_colonies = int(rng.integers(lo_n, hi_n + 1))
+    touch_prob = (scenario.touching_rate if scenario.touching_rate is not None
+                  else (0.25 if scenario.density == "dense" else 0.0))
 
     colonies: List[Dict] = []
     placements: List[Tuple[float, float, float]] = []  # (x, y, radius_px)
@@ -208,10 +311,16 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
         radius_px = max(2.0, radius_mm * px_per_mm)
 
         touching = False
-        # Deliberately force ~1 in 4 colonies on dense plates to overlap the
-        # previous colony, so the watershed "touching_colony" path is
-        # actually exercised rather than only ever seeing isolated colonies.
-        if scenario.density == "dense" and placements and rng.uniform() < 0.25:
+        # Deliberately force some colonies to overlap the previous one, so
+        # the watershed "touching_colony" path is actually exercised rather
+        # than only ever seeing isolated colonies. Rate is touch_prob: either
+        # scenario.touching_rate (held-out override) or the prior fixed
+        # 25%-on-dense-only behavior when that override is unset. touch_prob
+        # short-circuits the rng.uniform() draw itself (not just the branch)
+        # when zero, so existing non-dense scenarios consume rng identically
+        # to before this override existed — determinism for old callers
+        # depends on not drawing an extra random number they never drew.
+        if placements and touch_prob > 0 and rng.uniform() < touch_prob:
             ox, oy, orad = placements[-1]
             angle = rng.uniform(0, 2 * math.pi)
             overlap_frac = rng.uniform(0.3, 0.7)
@@ -231,8 +340,20 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
                 touching = _overlaps_any(px, py, radius_px)
 
         placements.append((px, py, radius_px))
-        cv2.circle(canvas, (int(px), int(py)), int(round(radius_px)),
-                   float(max(0, agar_level - colony_delta)), -1)
+        circularity = _draw_colony_shape(
+            canvas, px, py, radius_px, float(max(0, agar_level - colony_delta)),
+            scenario.circularity_noise_std, rng)
+
+        # is_anomaly mirrors quantify._flag_anomalies()'s deterministic,
+        # non-population-relative flags only (touching_colony, non_circular)
+        # — not the Z-score flags (unusual_size, elongated, ...), which are
+        # relative to the rest of the plate and can't be known at draw time
+        # without duplicating that plate-wide statistics machinery here.
+        anomaly_type: List[str] = []
+        if touching:
+            anomaly_type.append("touching_colony")
+        if circularity < NON_CIRCULAR_THRESHOLD:
+            anomaly_type.append("non_circular")
 
         colonies.append({
             "cx": float(px), "cy": float(py),
@@ -240,6 +361,9 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
             "radius_mm": float(radius_mm),
             "area_mm2": float(math.pi * radius_mm ** 2),
             "touching": touching,
+            "circularity": float(circularity),
+            "is_anomaly": bool(anomaly_type),
+            "anomaly_type": anomaly_type,
         })
 
     artifact_records: List[Dict] = []
@@ -276,6 +400,11 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
             "artifacts": list(scenario.artifacts),
             "camera_distance_factor": scenario.camera_distance_factor,
             "image_size": scenario.image_size,
+            "colony_count_range": scenario.colony_count_range,
+            "circularity_noise_std": scenario.circularity_noise_std,
+            "hotspot_magnitude_pct": scenario.hotspot_magnitude_pct,
+            "size_variance_ratio": scenario.size_variance_ratio,
+            "touching_rate": scenario.touching_rate,
         },
         "plate": {"cx": cx, "cy": cy, "radius_px": plate_radius_px,
                    "inner_radius_px": inner_radius_px, "px_per_mm": px_per_mm},
@@ -283,8 +412,58 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
         "artifacts": artifact_records,
         "expected_count": len(colonies),
         "touching_pairs": sum(1 for c in colonies if c["touching"]),
+        "expected_anomaly_count": sum(1 for c in colonies if c["is_anomaly"]),
     }
     return image_bgr, ground_truth
+
+
+# ── Blind validation: held-out plate scenarios ─────────────────────────────
+
+HELD_OUT_SET_NAMES: Tuple[str, ...] = (
+    "dense_pack", "irregular_morphology", "poor_illumination",
+    "size_variance", "high_touching",
+)
+
+
+def generate_held_out_scenario(set_name: str, seed: int) -> PlateScenario:
+    """Build one PlateScenario for a held-out blind-validation plate.
+
+    Each named set pushes exactly one axis to its HELD_OUT_*_RANGE stress
+    range while every other axis stays at PlateScenario's ordinary defaults,
+    so a scoring failure can be attributed to the one axis that changed.
+    The stressed value is sampled from a `seed`-derived RNG, so a given
+    (set_name, seed) always reproduces the same scenario — recoverable by
+    re-running this function rather than needing to be stored separately.
+    """
+    if set_name not in HELD_OUT_SET_NAMES:
+        raise ValueError(f"Unknown held-out set: {set_name}")
+    rng = np.random.default_rng(seed)
+
+    if set_name == "dense_pack":
+        return PlateScenario(seed=seed, density="dense",
+                              colony_count_range=HELD_OUT_COLONY_COUNT_RANGE)
+    if set_name == "irregular_morphology":
+        std = float(rng.uniform(*HELD_OUT_CIRCULARITY_NOISE_STD_RANGE))
+        return PlateScenario(seed=seed, circularity_noise_std=std)
+    if set_name == "poor_illumination":
+        pct = float(rng.uniform(*HELD_OUT_HOTSPOT_MAGNITUDE_PCT_RANGE))
+        return PlateScenario(seed=seed, illumination="hotspot", hotspot_magnitude_pct=pct)
+    if set_name == "size_variance":
+        ratio = float(rng.uniform(*HELD_OUT_SIZE_VARIANCE_RATIO_RANGE))
+        return PlateScenario(seed=seed, size_variance_ratio=ratio)
+    if set_name == "high_touching":
+        rate = float(rng.uniform(*HELD_OUT_TOUCHING_RATE_RANGE))
+        return PlateScenario(seed=seed, density="dense", touching_rate=rate)
+    raise AssertionError("unreachable — set_name validated against HELD_OUT_SET_NAMES above")
+
+
+def generate_held_out_plate(set_name: str, seed: int) -> Tuple[np.ndarray, Dict]:
+    """Render one held-out plate. Ground truth is tagged with which axis was
+    stressed, for per-set scoring in testing/blind_eval/."""
+    scenario = generate_held_out_scenario(set_name, seed)
+    image, ground_truth = generate_plate_image(scenario)
+    ground_truth["held_out_set"] = set_name
+    return image, ground_truth
 
 
 # ── Track 2: colony feature-vector generation ──────────────────────────────
