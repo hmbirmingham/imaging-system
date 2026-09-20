@@ -237,7 +237,7 @@ def _flag_anomalies(contour_info: List[Dict],
 # ── Pipeline stages ───────────────────────────────────────────────────────────
 
 def _subtract_background(gray: np.ndarray, plate_mask: np.ndarray,
-                         blur_kernel: int, diff_threshold: int) -> np.ndarray:
+                         blur_kernel: int, diff_threshold: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     Flatten the backlight gradient and threshold to a cleaned binary mask.
 
@@ -254,7 +254,16 @@ def _subtract_background(gray: np.ndarray, plate_mask: np.ndarray,
 
     Returns
     -------
-    Cleaned binary (uint8) mask ready for watershed segmentation.
+    (cleaned, illumination_corrected)
+      cleaned                 : cleaned binary (uint8) mask ready for watershed
+                                segmentation.
+      illumination_corrected  : the continuous-tone (not yet thresholded)
+                                background-subtracted image — not consumed
+                                elsewhere in this module; returned for callers
+                                visualizing the illumination-correction stage
+                                on its own (e.g. figure export), since the
+                                binary `cleaned` mask already collapses past
+                                the point where that stage is visually legible.
     """
     bg_model    = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
     diff        = cv2.subtract(bg_model, gray)
@@ -265,7 +274,7 @@ def _subtract_background(gray: np.ndarray, plate_mask: np.ndarray,
     k       = np.ones((3, 3), np.uint8)
     opened  = cv2.morphologyEx(binary, cv2.MORPH_OPEN,  k, iterations=1)
     cleaned = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, k, iterations=2)
-    return cleaned
+    return cleaned, diff_masked
 
 
 def _apply_watershed(image: np.ndarray,
@@ -451,7 +460,8 @@ def quantify_colonies(
     cv2.circle(plate_mask, (cx, cy), inner_radius, 255, -1)
 
     # ── 2-4. Background subtraction, threshold, morphological cleanup ─────────
-    cleaned = _subtract_background(gray, plate_mask, bg_blur_kernel, diff_threshold)
+    cleaned, illumination_corrected = _subtract_background(
+        gray, plate_mask, bg_blur_kernel, diff_threshold)
 
     # ── 5. Watershed segmentation (split touching colonies) ──────────────────
     contours, pre_watershed_labels, watershed_markers = _apply_watershed(image, cleaned)
@@ -580,6 +590,7 @@ def quantify_colonies(
         result["intermediates"] = {
             "original": original,
             "gray": gray,
+            "illumination_corrected": illumination_corrected,
             "cleaned": cleaned,
             "watershed_markers": watershed_markers,
         }
