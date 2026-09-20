@@ -269,7 +269,7 @@ def _subtract_background(gray: np.ndarray, plate_mask: np.ndarray,
 
 
 def _apply_watershed(image: np.ndarray,
-                     cleaned: np.ndarray) -> Tuple[List[np.ndarray], np.ndarray]:
+                     cleaned: np.ndarray) -> Tuple[List[np.ndarray], np.ndarray, np.ndarray]:
     """
     Split touching colonies with a distance-transform watershed.
 
@@ -280,11 +280,17 @@ def _apply_watershed(image: np.ndarray,
 
     Returns
     -------
-    (contours, pre_watershed_labels)
+    (contours, pre_watershed_labels, markers)
       contours              : external contours of the segmented colonies
       pre_watershed_labels  : connected-component labelling of `cleaned` taken
                               BEFORE watershed, used downstream to detect
                               colonies that were originally touching.
+      markers               : final post-watershed labelled image (as returned
+                              by cv2.watershed) — one label per segmented
+                              colony region, -1 on boundaries. Not consumed
+                              elsewhere in this module; returned for callers
+                              that need to visualize per-colony watershed
+                              regions (e.g. stage-by-stage figure export).
     """
     # Label connected components BEFORE watershed (touching-colony detection).
     _, pre_watershed_labels = cv2.connectedComponents(cleaned)
@@ -319,7 +325,7 @@ def _apply_watershed(image: np.ndarray,
 
     contours, _ = cv2.findContours(
         watershed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    return contours, pre_watershed_labels
+    return contours, pre_watershed_labels, markers
 
 
 def _annotate_image(original: np.ndarray,
@@ -379,6 +385,8 @@ def quantify_colonies(
     plate_inner_radius_mm: float = PLATE_INNER_RADIUS_MM,
     # anomaly
     anomaly_z_thresh: float = ANOMALY_Z_THRESHOLD,
+    # diagnostics — no effect on detection, only on what's returned
+    return_intermediates: bool = False,
 ) -> Dict:
     """
     Quantify bacterial colonies in a backlit agar plate image.
@@ -388,6 +396,13 @@ def quantify_colonies(
     dict with keys:
       input_path, output_path, count, px_per_mm,
       plate_circle, contours, summary_stats, anomaly_count
+
+    If return_intermediates=True, also includes an "intermediates" key with
+    the per-stage arrays this function doesn't otherwise expose (grayscale
+    input, background-subtracted binary mask, post-watershed label image) —
+    for callers building stage-by-stage figures, not used in detection
+    itself. Off by default: these arrays add real memory/copy cost that
+    every blind-eval/production call would otherwise pay for nothing.
     """
     # ── Parameter validation ─────────────────────────────────────────────────
     if min_area_mm2 < 0:
@@ -439,7 +454,7 @@ def quantify_colonies(
     cleaned = _subtract_background(gray, plate_mask, bg_blur_kernel, diff_threshold)
 
     # ── 5. Watershed segmentation (split touching colonies) ──────────────────
-    contours, pre_watershed_labels = _apply_watershed(image, cleaned)
+    contours, pre_watershed_labels, watershed_markers = _apply_watershed(image, cleaned)
 
     # ── 6. Filter contours & extract features ────────────────────────────────
     valid_contours: List[np.ndarray] = []
@@ -548,7 +563,7 @@ def quantify_colonies(
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         cv2.imwrite(output_path, annotated)
 
-    return {
+    result = {
         "input_path":   image_path,
         "output_path":  output_path,
         "count":        count,
@@ -561,6 +576,14 @@ def quantify_colonies(
         "contours":     contour_info,
         "summary_stats": summary,
     }
+    if return_intermediates:
+        result["intermediates"] = {
+            "original": original,
+            "gray": gray,
+            "cleaned": cleaned,
+            "watershed_markers": watershed_markers,
+        }
+    return result
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

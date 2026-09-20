@@ -7,20 +7,16 @@ actually doing, not blind parameter tuning.
 For each requested held-out set, every plate is scored against ground truth
 (reusing run_blind_eval's exact matching logic), and the plates with the
 most missed colonies (false negatives) are selected. Four panels are
-rendered per selected plate:
+rendered per selected plate, using quantify_colonies(return_intermediates=True)
+for the per-stage arrays (background-subtracted mask, watershed label image)
+rather than re-deriving them locally, so this view can't drift from what the
+real pipeline does:
 
   01_raw_input.png        - unmodified plate image
   02_binary_threshold.png - cleaned binary mask after background subtraction
   03_watershed_missed.png - watershed-labeled regions; ground-truth colonies
                             the pipeline missed are circled in red
   04_contour_overlay.png  - final annotated output (quantify.py's own overlay)
-
-The plate-detection + background-subtraction + watershed steps are
-re-derived locally (mirroring quantify.py's geometry and `_apply_watershed`)
-rather than calling quantify.py's private helpers, because the watershed
-`markers` array (needed to color-label regions for frame 3) isn't part of
-`_apply_watershed`'s return value and this script must not change
-quantify.py's behavior — this is a diagnostic export, not a pipeline change.
 """
 from __future__ import annotations
 
@@ -32,12 +28,7 @@ from typing import Dict, List
 import cv2
 import numpy as np
 
-from quantify import (
-    PLATE_INNER_RADIUS_MM,
-    detect_plate_circle,
-    quantify_colonies,
-    _subtract_background,
-)
+from quantify import quantify_colonies
 from testing.blind_eval.run_blind_eval import (
     PLATES_DIR_DEFAULT,
     match_detections_to_ground_truth,
@@ -46,51 +37,6 @@ from testing.blind_eval.run_blind_eval import (
 
 OUTPUT_DIR_DEFAULT = Path("testing/blind_eval/failure_analysis")
 TOP_N_DEFAULT = 3
-
-
-def _plate_geometry(gray: np.ndarray) -> Dict:
-    """Mirrors quantify_colonies()'s plate-detection/calibration stage
-    (quantify.py lines ~401-421) using its default rim_shrink_mm/
-    plate_inner_radius_mm, so the mask handed to _subtract_background here
-    matches what the real pipeline run used."""
-    plate = detect_plate_circle(gray)
-    if plate is not None:
-        cx, cy, radius = plate
-        rough_ppm = radius / (PLATE_INNER_RADIUS_MM + 3.0)
-        inner_radius = max(0, radius - int(3.0 * rough_ppm))
-    else:
-        h, w = gray.shape
-        cx, cy = w // 2, h // 2
-        radius = inner_radius = min(h, w) // 2
-    mask = np.zeros(gray.shape, np.uint8)
-    cv2.circle(mask, (cx, cy), inner_radius, 255, -1)
-    return {"cx": cx, "cy": cy, "radius": radius, "inner_radius": inner_radius, "mask": mask}
-
-
-def _watershed_with_markers(image: np.ndarray, cleaned: np.ndarray) -> np.ndarray:
-    """Reimplements quantify._apply_watershed()'s segmentation to also
-    surface the labeled `markers` array, which that function doesn't
-    return but which frame 3 needs to color each watershed region. Must be
-    kept in sync with quantify._apply_watershed()'s marker-seeding strategy
-    (currently: local maxima of the distance transform) so this diagnostic
-    view reflects what the real pipeline does."""
-    from scipy import ndimage as ndi
-    from quantify import WATERSHED_MIN_PEAK_DISTANCE_PX
-
-    k = np.ones((3, 3), np.uint8)
-    dist_transform = cv2.distanceTransform(cleaned, cv2.DIST_L2, 5)
-
-    footprint = np.ones((2 * WATERSHED_MIN_PEAK_DISTANCE_PX + 1,) * 2)
-    is_peak = (dist_transform == ndi.maximum_filter(dist_transform, footprint=footprint))
-    is_peak &= dist_transform > 0
-    peak_labels, _ = ndi.label(is_peak)
-
-    sure_bg = cv2.dilate(cleaned, k, iterations=3)
-    unknown = cv2.subtract(sure_bg, (peak_labels > 0).astype(np.uint8) * 255)
-
-    markers = peak_labels + 1
-    markers[unknown == 255] = 0
-    return cv2.watershed(image.copy(), markers)
 
 
 def _label_color_image(markers: np.ndarray) -> np.ndarray:
@@ -111,29 +57,26 @@ def _caption(image: np.ndarray, text: str) -> np.ndarray:
     return out
 
 
-def export_plate(image_path: str, ground_truth: Dict, unmatched_gt: List[Dict],
+def export_plate(image_path: str, unmatched_gt: List[Dict],
                   out_dir: Path, label: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    image = cv2.imread(image_path)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    result = quantify_colonies(image_path, output_path=str(out_dir / "04_contour_overlay.png"),
+                                return_intermediates=True)
+    intermediates = result["intermediates"]
 
-    cv2.imwrite(str(out_dir / "01_raw_input.png"), _caption(image, f"{label} - raw input"))
+    cv2.imwrite(str(out_dir / "01_raw_input.png"),
+                _caption(intermediates["original"], f"{label} - raw input"))
 
-    geom = _plate_geometry(gray)
-    cleaned = _subtract_background(gray, geom["mask"], blur_kernel=151, diff_threshold=3)
-    binary_vis = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+    binary_vis = cv2.cvtColor(intermediates["cleaned"], cv2.COLOR_GRAY2BGR)
     cv2.imwrite(str(out_dir / "02_binary_threshold.png"),
                 _caption(binary_vis, f"{label} - binary threshold"))
 
-    markers = _watershed_with_markers(image, cleaned)
-    watershed_vis = _label_color_image(markers)
+    watershed_vis = _label_color_image(intermediates["watershed_markers"])
     for gt in unmatched_gt:
         cv2.circle(watershed_vis, (int(gt["cx"]), int(gt["cy"])), int(gt["radius_px"]) + 4,
                     (0, 0, 255), 2)
     cv2.imwrite(str(out_dir / "03_watershed_missed.png"),
                 _caption(watershed_vis, f"{label} - watershed, missed colonies circled red"))
-
-    quantify_colonies(image_path, output_path=str(out_dir / "04_contour_overlay.png"))
 
 
 def select_worst_plates(plates_dir: Path, set_name: str, top_n: int) -> List[Dict]:
@@ -175,8 +118,8 @@ def main(iteration: int, sets: List[str], top_n: int = TOP_N_DEFAULT,
                 f"| `{plate_stem}` | {s['expected_count']} | {s['detected_count']} | "
                 f"{s['false_negatives']} | {s['recall']:.3f} | {s['count_error_pct']:.2f} |")
             plate_dir = iter_dir / set_name / plate_stem
-            export_plate(item["row"]["image_path"], item["ground_truth"],
-                         item["unmatched_gt"], plate_dir, f"{set_name}/{plate_stem}")
+            export_plate(item["row"]["image_path"], item["unmatched_gt"],
+                         plate_dir, f"{set_name}/{plate_stem}")
         summary_lines.append("")
 
     iter_dir.mkdir(parents=True, exist_ok=True)

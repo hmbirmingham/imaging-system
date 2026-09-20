@@ -136,7 +136,7 @@ class PipelineInstrumentation:
         if self.artifact_dir is None:
             return
         img = None
-        if name == "_apply_watershed" and isinstance(result, tuple) and len(result) == 2:
+        if name == "_apply_watershed" and isinstance(result, tuple) and len(result) >= 2:
             img = _labels_to_visual(result[1])
         elif name in ("_subtract_background", "_annotate_image") and isinstance(result, np.ndarray):
             img = result
