@@ -237,7 +237,7 @@ def _flag_anomalies(contour_info: List[Dict],
 # ── Pipeline stages ───────────────────────────────────────────────────────────
 
 def _subtract_background(gray: np.ndarray, plate_mask: np.ndarray,
-                         blur_kernel: int, diff_threshold: int) -> np.ndarray:
+                         blur_kernel: int, diff_threshold: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     Flatten the backlight gradient and threshold to a cleaned binary mask.
 
@@ -254,7 +254,16 @@ def _subtract_background(gray: np.ndarray, plate_mask: np.ndarray,
 
     Returns
     -------
-    Cleaned binary (uint8) mask ready for watershed segmentation.
+    (cleaned, illumination_corrected)
+      cleaned                 : cleaned binary (uint8) mask ready for watershed
+                                segmentation.
+      illumination_corrected  : the continuous-tone (not yet thresholded)
+                                background-subtracted image — not consumed
+                                elsewhere in this module; returned for callers
+                                visualizing the illumination-correction stage
+                                on its own (e.g. figure export), since the
+                                binary `cleaned` mask already collapses past
+                                the point where that stage is visually legible.
     """
     bg_model    = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
     diff        = cv2.subtract(bg_model, gray)
@@ -265,11 +274,11 @@ def _subtract_background(gray: np.ndarray, plate_mask: np.ndarray,
     k       = np.ones((3, 3), np.uint8)
     opened  = cv2.morphologyEx(binary, cv2.MORPH_OPEN,  k, iterations=1)
     cleaned = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, k, iterations=2)
-    return cleaned
+    return cleaned, diff_masked
 
 
 def _apply_watershed(image: np.ndarray,
-                     cleaned: np.ndarray) -> Tuple[List[np.ndarray], np.ndarray]:
+                     cleaned: np.ndarray) -> Tuple[List[np.ndarray], np.ndarray, np.ndarray]:
     """
     Split touching colonies with a distance-transform watershed.
 
@@ -280,14 +289,20 @@ def _apply_watershed(image: np.ndarray,
 
     Returns
     -------
-    (contours, pre_watershed_labels)
+    (contours, pre_watershed_labels, markers)
       contours              : external contours of the segmented colonies
       pre_watershed_labels  : connected-component labelling of `cleaned` taken
                               BEFORE watershed, used downstream to detect
                               colonies that were originally touching.
+      markers               : final post-watershed labelled image (as returned
+                              by cv2.watershed) — one label per segmented
+                              colony region, -1 on boundaries. Not consumed
+                              elsewhere in this module; returned for callers
+                              that need to visualize per-colony watershed
+                              regions (e.g. stage-by-stage figure export).
     """
     # Label connected components BEFORE watershed (touching-colony detection).
-    _, pre_watershed_labels = cv2.connectedComponents(cleaned)
+    num_blobs, pre_watershed_labels = cv2.connectedComponents(cleaned)
 
     k = np.ones((3, 3), np.uint8)
     dist_transform = cv2.distanceTransform(cleaned, cv2.DIST_L2, 5)
@@ -306,10 +321,29 @@ def _apply_watershed(image: np.ndarray,
     is_peak &= dist_transform > 0
     peak_labels, _ = ndi.label(is_peak)
 
-    sure_bg = cv2.dilate(cleaned, k, iterations=3)
-    unknown = cv2.subtract(sure_bg, (peak_labels > 0).astype(np.uint8) * 255)
+    # A single-peak-per-marker seed is a single point (or tiny cluster) —
+    # exactly what's needed to split a multi-colony blob, but for a blob
+    # that's already just one colony it gives cv2.watershed's flood-fill (on
+    # the real image, following its own gradients, not the binary mask) a
+    # much smaller starting basin than the old single blob-wide threshold
+    # did, which measurably undersizes the final contour (~10% smaller area
+    # on isolated colonies — caught by testing/continuous's Track 1 area
+    # accuracy check, which testing/blind_eval doesn't score at all). Since
+    # a lone peak means there was nothing to split in the first place,
+    # expand that blob's marker to its full pre-watershed extent — the old,
+    # area-accurate behavior — and reserve the tight peak-point markers for
+    # blobs where 2+ peaks actually indicate touching colonies to separate.
+    sure_fg = (peak_labels > 0).astype(np.uint8) * 255
+    for label in range(1, num_blobs):
+        blob_mask = pre_watershed_labels == label
+        if len(np.unique(peak_labels[blob_mask & (peak_labels > 0)])) == 1:
+            sure_fg[blob_mask] = 255
 
-    markers = peak_labels + 1
+    sure_bg = cv2.dilate(cleaned, k, iterations=3)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    _, markers = cv2.connectedComponents(sure_fg)
+    markers = markers + 1
     markers[unknown == 255] = 0
 
     ws_image = image.copy()
@@ -319,7 +353,7 @@ def _apply_watershed(image: np.ndarray,
 
     contours, _ = cv2.findContours(
         watershed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    return contours, pre_watershed_labels
+    return contours, pre_watershed_labels, markers
 
 
 def _annotate_image(original: np.ndarray,
@@ -379,6 +413,8 @@ def quantify_colonies(
     plate_inner_radius_mm: float = PLATE_INNER_RADIUS_MM,
     # anomaly
     anomaly_z_thresh: float = ANOMALY_Z_THRESHOLD,
+    # diagnostics — no effect on detection, only on what's returned
+    return_intermediates: bool = False,
 ) -> Dict:
     """
     Quantify bacterial colonies in a backlit agar plate image.
@@ -388,6 +424,13 @@ def quantify_colonies(
     dict with keys:
       input_path, output_path, count, px_per_mm,
       plate_circle, contours, summary_stats, anomaly_count
+
+    If return_intermediates=True, also includes an "intermediates" key with
+    the per-stage arrays this function doesn't otherwise expose (grayscale
+    input, background-subtracted binary mask, post-watershed label image) —
+    for callers building stage-by-stage figures, not used in detection
+    itself. Off by default: these arrays add real memory/copy cost that
+    every blind-eval/production call would otherwise pay for nothing.
     """
     # ── Parameter validation ─────────────────────────────────────────────────
     if min_area_mm2 < 0:
@@ -436,10 +479,11 @@ def quantify_colonies(
     cv2.circle(plate_mask, (cx, cy), inner_radius, 255, -1)
 
     # ── 2-4. Background subtraction, threshold, morphological cleanup ─────────
-    cleaned = _subtract_background(gray, plate_mask, bg_blur_kernel, diff_threshold)
+    cleaned, illumination_corrected = _subtract_background(
+        gray, plate_mask, bg_blur_kernel, diff_threshold)
 
     # ── 5. Watershed segmentation (split touching colonies) ──────────────────
-    contours, pre_watershed_labels = _apply_watershed(image, cleaned)
+    contours, pre_watershed_labels, watershed_markers = _apply_watershed(image, cleaned)
 
     # ── 6. Filter contours & extract features ────────────────────────────────
     valid_contours: List[np.ndarray] = []
@@ -548,7 +592,7 @@ def quantify_colonies(
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         cv2.imwrite(output_path, annotated)
 
-    return {
+    result = {
         "input_path":   image_path,
         "output_path":  output_path,
         "count":        count,
@@ -561,6 +605,16 @@ def quantify_colonies(
         "contours":     contour_info,
         "summary_stats": summary,
     }
+    if return_intermediates:
+        result["intermediates"] = {
+            "original": original,
+            "gray": gray,
+            "illumination_corrected": illumination_corrected,
+            "cleaned": cleaned,
+            "watershed_markers": watershed_markers,
+            "valid_contours": valid_contours,
+        }
+    return result
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

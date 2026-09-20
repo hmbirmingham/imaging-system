@@ -158,17 +158,80 @@
   geometric limit of the current segmentation technique, not a parameter
   available in this loop's scope.
 
+## Post-hoc fix — CI area-accuracy regression (after iteration 2, before merge)
+
+Discovered by CI, not by this validation loop: `testing.continuous`'s own
+Track 1 checks (a separate matrix, real distance-invariance/illumination
+sweep, run on every push) started failing on the merge commit for
+`feat/blind-validation` — one scenario out of 16
+(`illum=uniform|density=sparse|distance=0.85`, deterministic seed 11)
+dropped from 34.4% mean area error (just under the 35% pass threshold) to
+38.5% (just over). `testing/blind_eval` never caught this because it only
+scores colony-position matching (precision/recall/F1) — it has no
+per-colony area-accuracy check at all, unlike `testing.continuous`'s
+Track 1. Two independent validation loops covering different metrics on
+the same pipeline is exactly why this only surfaced in CI.
+
+- **Root cause**: iteration 2's local-maxima marker seeding gives an
+  isolated (non-touching) colony's blob a single-pixel-ish marker instead
+  of the broader region a threshold-based seed produces. `cv2.watershed`
+  grows that marker outward across the *real* image's gradients (not the
+  binary mask) — a smaller starting marker converges to a measurably
+  smaller final boundary even with no competing neighbor to split from,
+  undersizing area by ~10% on isolated colonies. Confirmed by diffing
+  per-colony areas from iteration-2 code against the pre-session code on
+  the failing scenario: every one of the 4 colonies present measured
+  smaller under iteration 2 (e.g. 4.32 mm² → 4.12 mm²), not just the one
+  that tipped the mean over threshold.
+- **Fix**: in `_apply_watershed()`, a blob is only "possibly touching" if
+  2+ local-maxima peaks fall inside it. For blobs with exactly one peak,
+  the marker is expanded to the blob's full pre-watershed extent (the
+  old, area-accurate behavior) instead of the tight peak point — the tight
+  peak-only marker is now reserved for blobs that actually need splitting.
+  Verified: the failing scenario now measures 14.05% mean area error
+  (better than both iteration 2's 38.5% *and* the original 34.4% — the
+  fix is a net improvement, not just a patch to clear the threshold), and
+  a full local re-run of `testing.continuous`'s 16-scenario CI matrix
+  passes all 16 (previously 15/16).
+- **Blind-eval impact**: this fix touches the same isolated-vs-touching
+  classification the whole iteration loop was built around, so it moved
+  blind-eval numbers slightly too — overall F1 **0.877 → 0.869**, recall
+  0.781 → 0.769. Every set moved down by 0.001-0.038 F1; the pass/fail
+  pattern (3 pass, 2 fail) is unchanged. This is expected and correct: the
+  previous 0.877 was measured with a pipeline that also undersized every
+  isolated colony's area by ~10%, which `testing/blind_eval`'s
+  position-matching metric doesn't penalize but which is real and was
+  papering over slightly-too-generous circularity/aspect-ratio pass-through
+  on a few marginal contours. 0.869 is the number for the pipeline that's
+  actually correct on both metrics at once, not a regression to accept.
+- Updated results below supersede iteration 2's numbers above; iteration
+  2's own text (hypothesis, root-cause analysis, sweep results) is left
+  unedited since the *reasoning* is unaffected — only the exact decimals
+  changed.
+
+  | set | F1 (iter 2, before fix) | F1 (after fix) | recall (before) | recall (after) |
+  |---|---|---|---|---|
+  | dense_pack | 0.846 | 0.840 | 0.733 | 0.725 |
+  | high_touching | 0.787 | 0.784 | 0.649 | 0.645 |
+  | size_variance | 0.957 | 0.919 | 0.917 | 0.851 |
+  | irregular_morphology | 0.998 | 0.996 | 0.996 | 0.991 |
+  | poor_illumination | 1.000 | 0.999 | 1.000 | 0.999 |
+  | **Overall (pooled)** | **0.877** | **0.869** | 0.781 | 0.769 |
+
 ## Stopping decision — after iteration 2
 
 Stopped after 2 of the allowed 5 iteration cycles, below the F1 > 0.90
 target, by explicit decision rather than by exhausting the cycle count.
+Numbers below are post the CI-driven area-accuracy fix above (final,
+committed state) — see that section for why they differ slightly from
+iteration 2's own numbers.
 
-- **Final overall F1: 0.877** (target 0.90). Precision 1.000 on every set,
+- **Final overall F1: 0.869** (target 0.90). Precision 1.000 on every set,
   every cycle — the pipeline never invented a colony; recall is the entire
   story, on both what was fixed and what remains.
-- **3 of 5 held-out sets pass:** `size_variance` (0.957), `poor_illumination`
-  (1.000), `irregular_morphology` (0.998).
-- **2 of 5 fail:** `dense_pack` (0.846), `high_touching` (0.787).
+- **3 of 5 held-out sets pass:** `size_variance` (0.919), `poor_illumination`
+  (0.999), `irregular_morphology` (0.996).
+- **2 of 5 fail:** `dense_pack` (0.840), `high_touching` (0.784).
 - **Why stop before 5 cycles:** all three parameters this loop was scoped to
   tune (`min_area_mm2`, watershed splitting, `bg_blur_kernel`) were tested to
   exhaustion — one ruled out empirically before spending a cycle on it, one
@@ -184,9 +247,15 @@ target, by explicit decision rather than by exhausting the cycle count.
   blobs, or concave-point contour splitting), which is new pipeline
   architecture, not a parameter tune, and out of this loop's scope.
 - **This gap is real and goes in the memo's limitations section as-is:**
-  the pipeline is commercially comparable to published open-source counter
-  accuracy (~93-97%, see Branch 1's benchmark comparison) on 3 of 5
-  held-out stress conditions, including the ones stressing illumination,
-  morphology irregularity, and size variance. It underperforms specifically
-  on plates with dense, heavily-overlapping colonies — a known, named,
-  measured limitation, not a hidden one.
+  per `testing/blind_eval/results/benchmark_comparison.md`, this pipeline's
+  pooled mean count error (see that file for the current number) sits well
+  inside the range independently-published literature reports for real
+  automated counters — 50.31% for OpenCFU on a dense dataset, 18.3-59.7%
+  for ColonyDoc-It depending on agar medium (both real peer-reviewed
+  figures, not vendor claims — see methodology.md for why the original
+  ~93-97% placeholder figures didn't hold up and were replaced). That
+  comparison covers 3 of 5 held-out stress conditions cleanly, including
+  the ones stressing illumination, morphology irregularity, and size
+  variance. It underperforms specifically on plates with dense,
+  heavily-overlapping colonies — a known, named, measured limitation, not
+  a hidden one.

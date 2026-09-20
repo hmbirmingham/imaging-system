@@ -6,9 +6,9 @@ Plates selected as the most false negatives (missed colonies) per failing held-o
 
 | plate | expected | detected | false negatives | recall | count error % |
 |---|---|---|---|---|---|
-| `plate_021` | 116 | 74 | 42 | 0.638 | 36.21 |
+| `plate_021` | 116 | 69 | 47 | 0.595 | 40.52 |
+| `plate_035` | 116 | 78 | 38 | 0.672 | 32.76 |
 | `plate_038` | 112 | 74 | 38 | 0.661 | 33.93 |
-| `plate_043` | 116 | 79 | 37 | 0.681 | 31.90 |
 
 ## high_touching
 
