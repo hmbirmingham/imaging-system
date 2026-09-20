@@ -46,3 +46,9 @@ testing/thesis_export/generated/
 # merge) as the thesis-relevant snapshot — only the raw per-cycle data
 # behind it (above) is excluded.
 !testing/reports/aggregate_report.md
+
+# Blind validation held-out plates — regenerable from
+# testing/blind_eval/generate_held_out_plates.py + the seed each plate's
+# manifest row logs. Results tables (testing/blind_eval/results/) ARE
+# committed — see testing/blind_eval/run_blind_eval.py.
+testing/blind_eval/plates/
