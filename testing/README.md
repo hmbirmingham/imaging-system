@@ -3,9 +3,8 @@
 Pre-validation testing scope for the plate imaging pipeline: exercises
 `quantify.py`, `anomaly.py`, `data_logger.py`, `profiles.py`, and `server.py`
 against synthetic data continuously, since real biological validation is
-out of scope for this semester. See `testing/handoffs/` for per-branch
-handoff notes and `testing/reports/aggregate_report.md` for the accumulated,
-auto-updated results.
+out of scope for this semester. See `testing/reports/aggregate_report.md`
+for the accumulated, auto-updated results.
 
 ## `continuous/synthetic_data.py`
 
