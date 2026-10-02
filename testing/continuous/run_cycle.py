@@ -4,8 +4,8 @@ Phase B instrumentation) -> Phase C together, plus Track 3 (every cycle)
 and Track 4 (every cycle) and Track 2 (every Nth cycle, if
 track2_ml_validation.py is present — added by feat/ml-validation).
 
-Every cycle ends by freeing large arrays and pruning old on-disk artifacts —
-see the approved plan's "Hardware constraints" section: this harness may run
+Every cycle ends by freeing large arrays and pruning old on-disk artifacts,
+because this harness may run
 unattended for a long time on a memory/disk-constrained Raspberry Pi
 alongside the real capture app, so nothing here is allowed to grow
 unbounded.

@@ -60,8 +60,8 @@ def test_run_one_cycle_produces_all_phase_artifacts(isolated_output_dirs):
 
 
 def test_run_one_cycle_prunes_artifact_images_directory(isolated_output_dirs):
-    """Confirms the retention/pruning discipline (see the approved plan's
-    Hardware constraints section) actually runs, not just exists in code."""
+    """Confirms the retention/pruning discipline actually runs, not just
+    exists in code."""
     import yaml
     matrix = yaml.safe_load(run_cycle.MATRIX_PATH.read_text())
     retention = matrix.get("artifact_retention_cycles", 5)
