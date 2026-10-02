@@ -17,8 +17,7 @@ Two operating modes:
                          call per scenario) and exits — this is what the
                          GitHub Action calls on every push.
 
-Memory discipline in continuous mode (see the approved plan's "Hardware
-constraints" section): this may run unattended for a long time on a
+Memory discipline in continuous mode: this may run unattended for a long time on a
 Raspberry Pi that also runs the real capture app, so it checks its own
 process RSS every cycle via resource.getrusage and backs off (a longer
 sleep) once it crosses `--rss-limit-mb`, rather than free-running as fast as

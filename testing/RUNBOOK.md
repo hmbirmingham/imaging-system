@@ -2,7 +2,7 @@
 
 Practical answers to "how do I actually run this thing / see what it found /
 get it into git". For *why* the harness is built the way it is, see
-`testing/README.md` and `testing/handoffs/`.
+`testing/README.md`.
 
 ## Does anything auto-push?
 

@@ -2,7 +2,7 @@
 track4_dryrun.py — Full end-to-end system dry run: capture -> quantify ->
 SSE event -> result fetch, in Flask's existing demo-mode code path.
 
-Hardware safety (see the approved plan's "Hardware constraints" section):
+Hardware safety:
 this module NEVER calls `/api/led` or anything touching led_pwm's real
 GPIO/mmap driver — that route is simply never part of the driven flow, so
 there is no path by which an automated cycle pulses the physical LEDs.
