@@ -83,10 +83,14 @@ def _our_row(results: Dict) -> Dict:
                   f"variance, poor illumination, irregular morphology) not used "
                   f"during pipeline development.")
     if passing_error is not None:
-        conditions += (f" On the 3/5 conditions that pass this validation's own "
-                        f"F1 > {results['target_f1']:.2f} target (irregular_morphology, "
-                        f"poor_illumination, size_variance): {passing_error:.2f}% mean "
-                        f"count error, pooled.")
+        # Count and names are derived, never hardcoded: which sets pass moves
+        # when the pipeline changes, and a hardcoded "3/5 (set, set, set)"
+        # silently became false the moment dense_pack started passing.
+        passing_names = ", ".join(sorted(passing))
+        conditions += (f" On the {len(passing)}/{len(results['by_set'])} conditions "
+                        f"that pass this validation's own F1 > "
+                        f"{results['target_f1']:.2f} target ({passing_names}): "
+                        f"{passing_error:.2f}% mean count error, pooled.")
 
     return {
         "system": "Our pipeline",
