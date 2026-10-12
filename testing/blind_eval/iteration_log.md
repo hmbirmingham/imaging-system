@@ -380,3 +380,69 @@ re-measured against the post-fix numbers. Treat it as unquantified until it is.
 
 `max_area_mm2` (still the dominant cause of `size_variance` misses),
 saddle-depth gating, concave-point splitting, and anomaly-layer tuning.
+
+---
+
+## Quantifying the single-peak limit (2026-10-12, post bug-3)
+
+The bug-3 entry left the geometric claim flagged as unquantified. Measured
+now, against the post-fix pipeline, so it stops being an assertion.
+
+**Method.** Every overlapping ground-truth pair in the held-out sets
+(centre distance `d` < `r1 + r2`): 2342 pairs, all of them in
+`high_touching` and `dense_pack` — the other three sets contain zero
+overlapping pairs. A pair counts as *resolved* iff **both** members matched
+distinct detections under the same matcher `run_blind_eval.py` uses.
+
+Two candidate conditions, since they are not the same condition:
+
+- `d² > r1² − r2²` — the intersection chord falls between the two centres
+  rather than beyond the smaller one.
+- `d > r1 − r2` — the weaker distance-transform saddle condition (the
+  smaller disk's centre is not engulfed by the larger disk).
+
+**Results.**
+
+| condition | share of pairs it covers | resolved when TRUE | resolved when FALSE |
+|---|---|---|---|
+| `d² > r1² − r2²` | **68.4%** (1603/2342) | 39.4% | **0.4%** |
+| `d > r1 − r2` | 93.1% (2180/2342) | 29.0% | 1.2% |
+
+**What this establishes, and what it doesn't.**
+
+`d² > r1² − r2²` is an excellent **necessary** condition: of the 739 pairs
+that fail it, 99.6% go unresolved. Stating it is justified.
+
+It is **not sufficient** — pairs satisfying it still resolve only 39.4% of
+the time. And it accounts for only **43.1%** of the unresolved population
+(736 of 1707 unresolved pairs). The majority of unresolved overlaps are
+geometrically splittable by this criterion and still don't get split.
+
+**What explains the rest: cluster size, not pair geometry.** Overlaps are
+frequently not pairwise at all — cluster sizes run 2:907, 3:251, 4:71,
+5:32, 6:7, 7:4, 8:1, 9:2. Among pairs the condition says are splittable,
+resolution degrades monotonically as the surrounding cluster grows:
+
+| colonies in cluster | pairs | resolved |
+|---|---|---|
+| 2 (isolated pair) | 590 | **51.5%** |
+| 3 | 482 | 37.3% |
+| 4 | 251 | 29.1% |
+| 5+ | 280 | 26.8% |
+
+Of the 971 unresolved-but-splittable pairs, **685 (70.5%) sit in clusters
+of 3+**. A two-circle model is simply the wrong unit for most of the
+residual gap. Note also that even the cleanest case — an isolated pair that
+satisfies the condition — resolves only 51.5% of the time, so some loss
+remains unexplained by either geometry or cluster size.
+
+**Bearing on the memo.** The honest formulation is: the single-peak limit
+is a real and necessary constraint covering 68.4% of overlapping pairs, but
+it explains under half the residual gap. The larger factor is multi-colony
+clustering. Any claim that geometry explains the remaining failures is
+still overstated, even post-fix.
+
+*Caveats:* pair-level accounting counts a colony once per pair it
+participates in, so clustered colonies are weighted more heavily; and a
+member can go unmatched for reasons unrelated to overlap (e.g. the
+`max_area_mm2` ceiling), which is not separated out here.
