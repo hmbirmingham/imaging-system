@@ -8,4 +8,4 @@
 | Medium: Moderate Density, Light Touching | `high_touching/plate_011` | 29 | 5 | 5 |
 | Hard: Dense Colony Packing | `dense_pack/plate_040` | 100 | 26 | 26 |
 | High-Anomaly: Irregular Morphology | `irregular_morphology/plate_012` | 20 | 6 | 0 |
-| Worst Case: Lowest-F1 Held-Out Plate (F1=0.513) | `high_touching/plate_039` | 29 | 16 | 16 |
+| Worst Case: Lowest-F1 Held-Out Plate (F1=0.710) | `high_touching/plate_020` | 40 | 21 | 21 |

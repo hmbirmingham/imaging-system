@@ -220,6 +220,12 @@ the same pipeline is exactly why this only surfaced in CI.
 
 ## Stopping decision — after iteration 2
 
+> **Superseded 2026-10-12.** The numbers and the central conclusion in this
+> section were both wrong, for a reason found after the memo went out — see
+> "Bug 3" at the bottom of this log. The section is left unedited as the
+> record of what was believed and published at the time. Current numbers
+> are in `results/blind_eval_results.md`.
+
 Stopped after 2 of the allowed 5 iteration cycles, below the F1 > 0.90
 target, by explicit decision rather than by exhausting the cycle count.
 Numbers below are post the CI-driven area-accuracy fix above (final,
@@ -259,3 +265,118 @@ iteration 2's own numbers.
   variance. It underperforms specifically on plates with dense,
   heavily-overlapping colonies — a known, named, measured limitation, not
   a hidden one.
+
+---
+
+## Bug 3 — watershed splits discarded at contour extraction (2026-10-12)
+
+Found after the memo was published, while tracing deep-saddle touching
+pairs stage by stage. This one invalidates part of the stopping decision
+above, so it gets its own entry rather than an edit to that section.
+
+### What it was
+
+`_apply_watershed()` ran `cv2.watershed()`, collapsed **every** region
+label into one binary mask (`watershed_mask[markers > 1] = 255`), then
+called `cv2.findContours()` once on that mask. `findContours` traces
+8-connected foreground, and `cv2.watershed` separates adjacent regions
+with a boundary line only 1px wide. Two regions that watershed had
+correctly split therefore stayed diagonally 8-connected around that line
+and were traced as a **single external contour** — silently discarding the
+split, at the last step, after the segmentation work had already succeeded.
+
+The irony worth recording: iterations 1 and 2 were spent making watershed
+produce more correct splits. It was producing them. They were being thrown
+away one line later.
+
+### How it was found
+
+Counting what `cv2.watershed()` actually produced (distinct labels > 1)
+against what the function returned (contours), per plate, 20 plates/set:
+
+| set | watershed regions | contours returned | lost |
+|---|---|---|---|
+| `high_touching` | 531 | 452 | **79 (14.9%)** |
+| `dense_pack` | 1664 | 1479 | **185 (11.1%)** |
+| `irregular_morphology` | 341 | 326 | 15 (4.4%) |
+| `size_variance` | 307 | 306 | 1 (0.3%) |
+| `poor_illumination` | 306 | 305 | 1 (0.3%) |
+
+The loss was concentrated almost entirely in the two sets this validation
+had been reporting as failing — which is exactly why it went unnoticed:
+the failure looked like the segmentation ceiling we had already "proven,"
+and matched the prediction well enough that nobody checked the next stage.
+
+### The fix
+
+Trace contours **per watershed label** (bounded by each region's own
+bounding box via `ndi.find_objects`, so cost stays proportional to colony
+area, not plate area) instead of from one collapsed mask. Exact by
+construction: two regions can only merge if they share a label, which they
+don't. Post-fix, contours returned == watershed regions produced, on every
+set — zero loss.
+
+### What moved
+
+Full 250-plate blind eval, before (committed state) vs after:
+
+| set | F1 before | F1 after | recall before | recall after | status |
+|---|---|---|---|---|---|
+| `dense_pack` | 0.840 | **0.904** | 0.725 | 0.827 | FAIL → **PASS** |
+| `high_touching` | 0.784 | **0.877** | 0.645 | 0.782 | FAIL (improved) |
+| `size_variance` | 0.919 | 0.920 | 0.851 | 0.852 | PASS |
+| `irregular_morphology` | 0.996 | 0.982 | 0.991 | 1.000 | PASS |
+| `poor_illumination` | 0.999 | 1.000 | 0.999 | 1.000 | PASS |
+| **Overall (pooled)** | **0.869** | **0.918** | 0.769 | 0.852 | **FAIL → PASS vs 0.90** |
+
+- Mean count error: 15.75% → **11.43%**
+- Anomaly detection, pooled F1: 0.234 → **0.405** (not tuned — touching
+  colonies that are now split correctly also get their `touching_colony`
+  flag correctly, which that layer was missing wholesale before)
+- 4 of 5 sets now pass, up from 3. **The overall F1 > 0.90 target is met
+  for the first time.**
+
+### What it cost
+
+**Precision is no longer 1.000.** Pooled precision 1.000 → **0.995**:
+**41 false positives** across 250 plates (7683 TP, 1339 FN).
+
+| set | false positives | plates affected |
+|---|---|---|
+| `irregular_morphology` | **30** | 22/50 |
+| `dense_pack` | 9 | 8/50 |
+| `high_touching` | 2 | 2/50 |
+| `poor_illumination` | 0 | 0/50 |
+| `size_variance` | 0 | 0/50 |
+
+`irregular_morphology` carries 73% of them, and the mechanism is
+understandable: that set's colonies are deliberately star-shaped, watershed
+over-splits a concave single colony into pieces, and those pieces are no
+longer merged back together by the very bug being fixed here. Its recall
+went to a perfect 1.000 in exchange — it now finds every colony and
+occasionally splits one in two.
+
+The "pipeline never invents a colony" claim, repeated throughout this log
+and in the published memo, **is no longer true** and must not be restated.
+
+### What this does to the "architectural ceiling" conclusion
+
+Iteration 2 concluded that the residual gap on dense/touching plates was a
+geometric ceiling of distance-transform watershed — that heavily
+overlapping colonies produce a single-peaked distance transform with no
+second peak to find. **That analysis is still correct as far as it goes,
+and it was measured directly, but it was load-bearing for a claim it could
+not support.** It explained why *some* pairs cannot be split; it was used
+to explain the *whole* remaining gap. A double-digit share of that gap was
+this extraction bug instead, and it is now recovered.
+
+What remains after this fix: `high_touching` is still below target at
+0.877 (recall 0.782). The single-peak limit plausibly explains that
+residual — but that is now a claim about a much smaller gap than the one
+it was originally offered for, and the precise share it covers has not been
+re-measured against the post-fix numbers. Treat it as unquantified until it is.
+
+### Out of scope here (follow-ups, not done)
+
+`max_area_mm2` (still the dominant cause of `size_variance` misses),
+saddle-depth gating, concave-point splitting, and anomaly-layer tuning.
