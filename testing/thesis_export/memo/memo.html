@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Blind validation of an automated colony counter</title>
+<style>
+  @page { size: 8.5in 11in; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --ink: #1a1a1a; --muted: #6b6b70; --rule: #d8d8dc;
+    --teal: #0f766e; --orange: #c2410c; --tint: #f2f4f4;
+    --serif: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+    --sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { font-family: var(--serif); color: var(--ink); -webkit-font-smoothing: antialiased; }
+  .page { width: 8.5in; height: 11in; padding: 0.80in 0.80in 0.62in; position: relative;
+          page-break-after: always; overflow: hidden; }
+  .page:last-child { page-break-after: auto; }
+
+  .runhead { font-family: var(--sans); font-size: 8.2pt; font-weight: 700; color: var(--teal);
+             letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 20px; }
+  .foot { position: absolute; left: 0.80in; right: 0.80in; bottom: 0.42in;
+          font-family: var(--sans); font-size: 7.8pt; color: #9a9aa0; text-align: right; }
+
+  h1 { font-size: 30pt; line-height: 1.12; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 9px; }
+  .sub { font-size: 13.5pt; font-style: italic; color: var(--muted); margin-bottom: 16px; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 0 0 17px; }
+
+  h2 { font-family: var(--sans); font-size: 12.8pt; font-weight: 700; margin: 15px 0 7px; letter-spacing: -0.2px; }
+  h3 { font-family: var(--sans); font-size: 10.6pt; font-weight: 700; color: var(--teal); margin: 13px 0 5px; }
+  p { font-size: 10.1pt; line-height: 1.46; margin-bottom: 8px; }
+  .lead p { font-size: 10.5pt; }
+  code { font-family: var(--mono); font-size: 9.1pt; background: #f4f4f6; padding: 0.5px 3px; border-radius: 3px; }
+  b, strong { font-weight: 700; }
+  ul { margin: 2px 0 9px 17px; }
+  li { font-size: 10.0pt; line-height: 1.44; margin-bottom: 4px; }
+
+  .eyebrow { font-family: var(--sans); font-size: 8pt; font-weight: 700; letter-spacing: 1.7px;
+             text-transform: uppercase; color: var(--muted); margin: 16px 0 7px; }
+  .tiles { display: flex; gap: 0; border-top: 2.5px solid var(--teal); }
+  .tile { flex: 1; background: var(--tint); padding: 9px 11px 11px; border-right: 2px solid #fff; }
+  .tile:last-child { border-right: 0; }
+  .tile.warn { border-top: 2.5px solid var(--orange); margin-top: -2.5px; }
+  .tv { font-family: var(--sans); font-size: 19pt; font-weight: 700; color: var(--teal); line-height: 1.1; }
+  .tile.warn .tv { color: var(--orange); }
+  .tk { font-family: var(--sans); font-size: 7.6pt; color: var(--muted); line-height: 1.33; margin-top: 3px; }
+  .tp { font-family: var(--sans); font-size: 7pt; color: #9a9aa0; margin-top: 3px; font-style: italic; }
+
+  .callout { background: var(--tint); border-left: 3px solid var(--teal); padding: 9px 12px;
+             margin: 10px 0; }
+  .callout p { font-size: 9.5pt; line-height: 1.45; margin-bottom: 0; }
+  .callout.rev { border-left-color: var(--orange); }
+
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px 12px;
+           margin: 9px auto 5px; max-width: 5.95in; }
+  .grid3 img { width: 100%; display: block; border: 1px solid var(--rule); }
+  .pcap { font-family: var(--sans); margin-top: 5px; }
+  .pcap .n { font-weight: 700; color: var(--teal); font-size: 8.6pt; }
+  .pcap .t { font-weight: 700; font-size: 8.6pt; }
+  .pcap .d { font-size: 7.3pt; color: var(--muted); line-height: 1.3; margin-top: 2px; }
+  .fcap { font-family: var(--sans); font-size: 7.9pt; color: var(--muted); line-height: 1.42; margin-top: 7px; }
+  .fcap b { color: var(--ink); }
+  figure img.wide { width: 100%; display: block; }
+</style>
+</head>
+<body>
+
+<!-- ───────────────────────── PAGE 1 ───────────────────────── -->
+<div class="page">
+  <div class="runhead">Hynes Birmingham · Ryberg Lab, University of Connecticut</div>
+
+  <h1>Blind validation of an automated colony counter</h1>
+  <p class="sub">What held up, what didn't, and why</p>
+  <hr />
+
+  <div class="lead">
+  <p>Manual colony counting is slow, and it gives you a number with no context. A tech counts a plate, writes down 47, and that's it: no flag on the odd satellite colony near the edge, no record of which colonies were touching, no repeatability across shifts. Existing automated counters fix the speed problem but mostly stop there. You get a count, not an assessment.</p>
+
+  <p>This year I've been building an instrument that does more: automated bacterial colony counting with morphological anomaly detection and an organism-aware profile system, in Dr. Eric Ryberg's lab as a CAPS Research Scholar at UConn. This is a validation memo: I ran the system blind against synthetic data it had never seen, and I'm reporting the real numbers, including the one that still misses our target.</p>
+  </div>
+
+  <div class="callout rev">
+    <p><b>Revision 1 · 13 October 2026.</b> After publishing this memo I found a third bug: contour extraction was discarding colony splits the segmentation stage had already made correctly. Fixing it moved pooled F1 from <b>0.869 to 0.918</b>, clearing the target, and a fourth of five sets now passes. It also cost something real — precision is no longer 1.000. Figures below are corrected, with the published value shown as <i>was</i>. Where the original drew a conclusion I now think was wrong, I say so and leave the original claim visible.</p>
+  </div>
+
+  <div class="eyebrow">At a glance</div>
+  <div class="tiles">
+    <div class="tile">
+      <div class="tv">0.918</div>
+      <div class="tk">Pooled F1 across 250 blind plates (target 0.90)</div>
+      <div class="tp">was 0.869</div>
+    </div>
+    <div class="tile warn">
+      <div class="tv">0.995</div>
+      <div class="tk">Precision. 41 false colonies in 250 plates</div>
+      <div class="tp">was 1.000</div>
+    </div>
+    <div class="tile">
+      <div class="tv">4 of 5</div>
+      <div class="tk">Held-out sets at or above target</div>
+      <div class="tp">was 3 of 5</div>
+    </div>
+    <div class="tile">
+      <div class="tv">11.43%</div>
+      <div class="tk">Mean count error (8.89% on passing sets)</div>
+      <div class="tp">was 15.75%</div>
+    </div>
+  </div>
+
+  <h2>System architecture</h2>
+  <p>The full stack, built from the register level up:</p>
+  <ul>
+    <li><b>Hardware.</b> Custom power electronics on a KiCad-designed PCB, driving plate illumination and imaging.</li>
+    <li><b>Vision.</b> An OpenCV computer-vision pipeline on a Raspberry Pi 5, running from illumination correction through segmentation to morphometric analysis.</li>
+    <li><b>Anomaly detection.</b> Two layers: geometric flagging (area, circularity, and aspect-ratio outliers) plus a statistical/ML layer.</li>
+    <li><b>Organism profiles.</b> Counting and flagging thresholds adapt per organism instead of applying one fixed set of assumptions to every plate.</li>
+  </ul>
+
+  <div class="foot">Blind validation of an automated colony counter &nbsp;·&nbsp; 1</div>
+</div>
+
+<!-- ───────────────────────── PAGE 2 ───────────────────────── -->
+<div class="page">
+  <h2 style="margin-top:0">Blind validation methodology</h2>
+  <p>I generated 250 synthetic plates across five held-out parameter sets (density, illumination, size variance, morphology, and touching rate), 50 plates per set, using combinations never seen during pipeline development. Ground truth (exact colony positions, radii, and anomaly labels) was embedded in the generator output.</p>
+
+  <p>Critically: <code>quantify_colonies()</code> was called with only the image path. Ground truth was loaded strictly afterward, only to score what the pipeline had already returned. It never informed detection. That ordering is what makes this validation blind.</p>
+
+  <p>Matching used one-to-one nearest-centroid assignment with a gate at 1.5× the ground-truth colony's radius, not raw count comparison. Otherwise a false positive and a missed colony can cancel out and look like a perfect score. Results are pooled (micro-averaged) across all plates in a set rather than averaged per plate, so a handful of near-empty plates can't swing the aggregate.</p>
+
+  <h2>The CV pipeline</h2>
+  <p>Figure 1 follows one plate through every stage. I used the hardest plate in the run, <code>high_touching/plate_020</code> (F1 = 0.710), so the walkthrough shows the pipeline under stress rather than at its best. The same plate comes back in the results.</p>
+
+  <div class="grid3">
+    <div>
+      <img src="fig1_1.png" alt="Raw input" />
+      <div class="pcap"><span class="n">1</span> <span class="t">Raw input</span>
+        <div class="d">A held-out synthetic plate, straight from the generator. The pipeline receives only this image.</div></div>
+    </div>
+    <div>
+      <img src="fig1_2.png" alt="Illumination correction" />
+      <div class="pcap"><span class="n">2</span> <span class="t">Illumination correction</span>
+        <div class="d">Normalizes uneven lighting across the dish before anything downstream depends on absolute pixel intensity.</div></div>
+    </div>
+    <div>
+      <img src="fig1_3.png" alt="Threshold" />
+      <div class="pcap"><span class="n">3</span> <span class="t">Threshold</span>
+        <div class="d">Isolates colonies from background. Every later stage depends on clean separation here.</div></div>
+    </div>
+    <div>
+      <img src="fig1_4.png" alt="Watershed segmentation" />
+      <div class="pcap"><span class="n">4</span> <span class="t">Watershed segmentation</span>
+        <div class="d">Splits touching colonies, seeded from local maxima in the distance transform. This stage decides whether two overlapping colonies count as two or one.</div></div>
+    </div>
+    <div>
+      <img src="fig1_5.png" alt="Morphometrics" />
+      <div class="pcap"><span class="n">5</span> <span class="t">Morphometrics</span>
+        <div class="d">Extracts area, circularity, and aspect ratio for each colony from its segmented contour.</div></div>
+    </div>
+    <div>
+      <img src="fig1_6.png" alt="Anomaly detection" />
+      <div class="pcap"><span class="n">6</span> <span class="t">Anomaly detection</span>
+        <div class="d">Flags outliers (red): colonies whose shape or size falls outside the expected range for the organism profile.</div></div>
+    </div>
+  </div>
+
+  <div class="fcap"><b>Figure 1.</b> The pipeline, stage by stage, on the lowest-scoring plate in the run. In the published version, grey clusters in panels 5–6 carried no outline — watershed produced regions inside them (panel 4) that never reached the output. The original caption guessed a downstream filter removed them. It was not a filter: contour extraction discarded the splits before any filter ran (see <i>Bugs found and fixed</i>, item 3). They are now outlined and counted. That walkthrough used <code>high_touching/plate_039</code>, which the same fix lifted from F1 0.513 to 0.863 and out of last place.</div>
+
+  <div class="foot">Blind validation of an automated colony counter &nbsp;·&nbsp; 2</div>
+</div>
+
+<!-- ───────────────────────── PAGE 3 ───────────────────────── -->
+<div class="page">
+  <p style="margin-top:0">I benchmarked against peer-reviewed numbers for commercial and open-source counters, not vendor claims: OpenCFU at 50.31% mean count error in an independent re-benchmark (Chen et al. 2025), and ColonyDoc-It at 18.3–59.7% depending on agar medium (Heuser et al. 2023).</p>
+
+  <h2 style="margin-top:4px">Results</h2>
+  <p>Overall pooled F1 across all 250 plates was <b>0.918</b>, against a target of 0.90. Four of the five held-out sets passed. One did not. <i>(Previously reported: 0.869, with three of five passing.)</i></p>
+
+  <figure>
+    <img class="wide" src="fig2_f1_by_set.png" alt="Pooled F1 by held-out set" />
+    <div class="fcap"><b>Figure 2.</b> Pooled F1 by held-out set (50 plates each); dashed line marks the 0.90 target. The one set still below target is the one that stresses touching colonies hardest.</div>
+  </figure>
+
+  <h3>The precision claim has to be withdrawn</h3>
+  <p>The original memo put weight on one number above all the others: precision was 1.000 on every set and every plate, so the pipeline never fabricated a colony. That is no longer true, and the reason is the fix itself.</p>
+
+  <p>Precision is now <b>0.995</b>. Across 250 plates the pipeline produced <b>41 false colonies</b>, against 7,683 correct detections and 1,339 still missed. They are not evenly spread: <b>30 of the 41 sit on <code>irregular_morphology</code></b>, the set whose colonies are deliberately star-shaped, where watershed over-splits a single concave colony into fragments. Before the fix those fragments were being silently merged back together by the very bug I was fixing, which is the only reason precision ever read 1.000 there. That set's recall went to a perfect 1.000 in exchange. <code>dense_pack</code> contributes 9, <code>high_touching</code> 2, and the remaining two sets none.</p>
+
+  <p>So the honest version of the original claim is narrower: the pipeline rarely invents colonies, and when it does it is splitting a real one rather than hallucinating from noise. That is a meaningfully weaker statement than the one I published, and the trade bought 0.083 of pooled recall.</p>
+
+  <p>Mean count error was <b>11.43%</b> pooled across all five sets and <b>8.89%</b> on the four passing sets <i>(previously 15.75% and 5.31% on three)</i>. Both remain below the published error rates above (18.3–59.7%). Those benchmarks were measured on real agar and mine on synthetic plates, so this is context, not a head-to-head comparison. A direct comparison requires running both systems on identical plates under identical conditions, which is what biological validation is for.</p>
+
+  <div class="foot">Blind validation of an automated colony counter &nbsp;·&nbsp; 3</div>
+</div>
+
+<div class="page">
+  <h3 style="margin-top:0">The worst plate</h3>
+  <p>The single worst plate in the run now scores F1 = <b>0.710</b> with recall of 0.550; precision on it stays at 1.000. The previously worst plate, <code>high_touching/plate_039</code>, improved from F1 0.513 to 0.863 and now reports 22 of its 29 colonies, up from 10.</p>
+
+  <div class="grid3">
+    <div>
+      <img src="fig3_a.png" alt="What it reported" />
+      <div class="pcap"><span class="n">a</span> <span class="t">What it reported</span>
+        <div class="d">22 colonies counted, 6 flagged as anomalies (red). Every one of them is real.</div></div>
+    </div>
+    <div>
+      <img src="fig3_b.png" alt="What it missed" />
+      <div class="pcap"><span class="n">b</span> <span class="t">What it missed</span>
+        <div class="d">Missed colonies circled in red. Nearly all sit inside touching clusters.</div></div>
+    </div>
+    <div>
+      <img src="fig3_c.png" alt="Same failure, denser plate" />
+      <div class="pcap"><span class="n">c</span> <span class="t">Same failure, denser plate</span>
+        <div class="d"><code>dense_pack/plate_021</code>: 87 of 116 found. The same failure at a higher colony count, so it isn't specific to one plate.</div></div>
+    </div>
+  </div>
+  <div class="fcap"><b>Figure 3.</b> (a–b) <code>high_touching/plate_020</code>, the same plate as Figure 1. The whole F1 loss on it is recall. (c) A plate from the set that now passes, showing the same mechanism at higher density.</div>
+
+  <h2>Why one set still fails</h2>
+  <p>When two colonies overlap heavily enough, the merged blob's distance transform has only one local maximum, and there is no second peak for watershed — or any marker-seeding technique — to find. I verified this directly rather than inferring it from the F1 drop, and I have since quantified it across all 2,342 overlapping ground-truth pairs in the held-out sets.</p>
+
+  <p>For two overlapping disks of radii r₁ ≥ r₂ whose centres are distance d apart, two peaks survive when <b>d² &gt; r₁² − r₂²</b> — the intersection chord falls between the two centres rather than beyond the smaller one. That holds for <b>68.4%</b> of overlapping pairs here.</p>
+
+  <p>As a necessary condition it is excellent: of the 739 pairs that fail it, 99.6% go unresolved. As an explanation of the remaining gap it is <i>not sufficient</i>, and this is where the original memo overreached. Pairs that satisfy it still resolve only 39.4% of the time, and the condition accounts for just <b>43.1%</b> of unresolved pairs. Most unresolved overlaps are geometrically splittable and still don't get split.</p>
+
+  <p>What explains more of the rest is that overlaps are frequently not pairwise at all. Clusters here run to nine colonies, and among pairs the geometry says <i>are</i> splittable, resolution degrades steadily as the surrounding cluster grows: 51.5% for an isolated pair, 37.3% at three colonies, 29.1% at four, 26.8% at five or more. Of the unresolved-but-splittable pairs, <b>70.5% sit in clusters of three or more</b>. A two-circle model is simply the wrong unit for most of what remains.</p>
+
+  <p>I previously wrote that closing this gap needs a different segmentation approach entirely, such as Hough-circle fitting or concave-point contour splitting. That is still true, but only of what remains after the extraction bug — a substantially smaller gap than the one I was describing, and one where multi-colony clustering, not pairwise geometry, is the thing to attack.</p>
+
+  
+
+  <div class="foot">Blind validation of an automated colony counter &nbsp;·&nbsp; 4</div>
+</div>
+
+<!-- ───────────────────────── PAGE 5 ───────────────────────── -->
+<div class="page">
+  <div class="callout">
+    <p><b>For perspective:</b> the FDA BAM countable range (25–250 CFU/plate) has an upper limit because crowded plates "may be difficult to count or may inhibit the growth of some bacteria" — for humans too. Yet <code>dense_pack</code>'s 80–120 colonies per plate sit well inside that countable range and still cost measurable recall. It's a known industry-wide hard case, not a naive implementation gap. It's still a gap, and I'm reporting it, not excusing it.</p>
+  </div>
+
+  <h2>Bugs found and fixed along the way</h2>
+  <p>Three meaningful bugs were found and fixed. I'm listing them because reproducible research means documenting what changed, not just what the final system does.</p>
+  <ul>
+    <li><b>Per-blob watershed threshold.</b> Watershed's foreground threshold was computed against the whole plate's peak distance value instead of per blob, silently dropping markers on mixed-size plates. Fixing it moved F1 from 0.804 to 0.872 (measured before the area fix below).</li>
+    <li><b>A regression from that fix.</b> The fix undersized isolated colonies' measured area by about 10%. A separate area-accuracy CI check caught it, and it was fixed before the branch merged.</li>
+    <li><b>Watershed splits thrown away at contour extraction.</b> This is the one that moved everything, and I found it after this memo was already published, while tracing deep-saddle touching pairs stage by stage to see why they weren't splitting. They <i>were</i> splitting. I was collapsing every watershed region into one binary mask and calling <code>findContours</code> on it once — and <code>findContours</code> traces 8-connected foreground, while watershed separates regions with a line one pixel wide. Two regions it had correctly split stayed diagonally connected around that line and came back as a single contour. Measured before the fix: 14.9% of watershed regions lost on <code>high_touching</code>, 11.1% on <code>dense_pack</code>, against 0.3% on the sparse sets — concentrated, almost perfectly, in the two sets I had been reporting as failures. That concentration is exactly why it hid: it looked like the segmentation ceiling I thought I had already proven. Tracing contours per watershed label fixed it. Two iterations of this project were spent making watershed produce better splits; it had been producing them the whole time, and I was discarding them one line later.</li>
+  </ul>
+
+  <h2>Anomaly detection: still deferred</h2>
+  <p>Anomaly detection is weak across the board (pooled F1 of <b>0.405</b>, <i>previously 0.234</i>) and I still have not tuned it. The improvement is incidental: colonies that are finally split correctly also receive their touching-colony flag correctly, which that layer had been missing wholesale. Counting has now converged on four of five sets, so this is the next thing to actually work on rather than defer.</p>
+
+  <h2>What's next</h2>
+  <p><b>The quickest win.</b> 99.2% of <code>size_variance</code>'s missed colonies exceed a fixed <code>max_area_mm2</code> filter. Deriving that limit from plate calibration, not a hardcoded constant, should close most of that gap fast.</p>
+  <p><b>Cluster-aware splitting.</b> Now the largest identified source of remaining loss, ahead of pairwise geometry.</p>
+  <p><b>Biological validation.</b> The next major phase moves to real clinical plates instead of synthetic renders. Everything above is synthetic by design, so the pipeline still has to prove itself against real agar, real bubbles, and real staining before any of these numbers mean anything clinically. That's the next memo.</p>
+  <p><b>Contributors welcome.</b> The full pipeline is open source: github.com/hmbirmingham/imaging-system. If you work with colony morphology and want to contribute an organism profile (expected size, circularity, and anomaly thresholds for a specific organism), I'd like the help. That's the part built to be extended, and it's not something I can populate alone.</p>
+
+  <div class="foot">Blind validation of an automated colony counter &nbsp;·&nbsp; 5</div>
+</div>
+
+</body>
+</html>
