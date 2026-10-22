@@ -505,3 +505,39 @@ plate calibration rather than a constant (the diagnostics rerun confirms
 raising it to 80 takes `size_variance` to F1 1.000 and pooled to 0.926),
 cluster-aware splitting for 3+ colony clusters, anomaly-layer tuning
 (pooled F1 0.405, never tuned), and biological validation.
+
+**Reviewer findings, and what I changed.** A fresh reviewer reproduced all
+four gates independently rather than taking the branch's word: 250/250
+baseline plates byte-identical, 400/400 ladder plates regenerated exactly,
+and both results files reproduced byte-for-byte from its own run. No
+leakage path. It also checked the two claims most at risk of being right
+for the wrong reason, and both survived: the rim ring really does render
+at full 25-unit amplitude (seam 115 against interior 140, and `diff` goes
+39 to 63 at the seam against `diff_threshold = 3`, so the threshold makes
+the seam *more* strongly foreground before discarding it), and abut pairs
+genuinely merge into one connected component 96 to 100% of the time, so
+the 95 to 98% class D split rate is real splitting rather than pairs that
+were never joined.
+
+Three overstatements it caught, all now corrected in
+`results/realistic_contact.md`, none affecting the outcome:
+
+1. "Class A is satisfied automatically once d is near r1+r2" was too
+   strong. It reduces to `r2/r1 > (1-f^2)/(1+f^2)`, which is 0.105 at
+   f=0.90. It holds here only because the radius range floors the ratio at
+   0.273. I verified the algebra and the margins myself.
+2. Dome shading cancels the rim ring at r3: the dome rim sits at 167, plus
+   the 25-unit ring gives 142 against a 140 interior, so the seam is 2
+   units brighter than the interior rather than darker. r2 remains the
+   clean cue test so no conclusion moves, but r3 does not carry r2's cue.
+   I did not re-render, because the ladder parameters were committed
+   before Phase 3 and changing them after seeing results is exactly what
+   the pre-registration is for.
+3. The rungs are unpaired, each on its own seed block, so they are
+   different scenarios rather than the same plates re-rendered. Seed noise
+   is bounded at 0.002 to 0.007 against a 0.091 jump, so the result holds,
+   but a paired design was available for free and is what I should have
+   built.
+
+It also flagged that a blanket `git add` had swept an unrelated
+`aggregate_report.md` rewrite into the ladder commit. Reverted.

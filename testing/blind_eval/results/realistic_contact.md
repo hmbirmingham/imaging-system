@@ -150,23 +150,38 @@ moves from deep overlap to abutting. Adding the rim ring (r2) and then
 shading, blur and noise (r3) changes nothing material: 0.961, 0.958,
 0.966 and 0.972, 0.971, 0.968. Contact depth was the whole effect.
 
-**The rim cue bought nothing, and that is informative.** I added it
-expecting it to help, because a visible boundary line is exactly the
-evidence a splitter should use. It did not, and the reason is structural:
+**The rim cue bought nothing, and that is informative.** `r2` is the
+clean test of it: a 25-unit seam at full amplitude against a 60-unit
+colony delta, and F1 moved 0.961 to 0.958. I added it expecting it to
+help, because a visible boundary line is exactly the evidence a splitter
+should use. It did not, and the reason is structural:
 `_subtract_background` thresholds to a binary mask before anything splits,
 so by the time `_apply_watershed` runs, the seam has been thrown away. The
 pipeline segments a silhouette, not an image. Any future method that wants
 to use image evidence inside a cluster has to read it before the
 threshold, not after.
 
-**Class A disappears under realistic contact.** There were 85 and 239
-isolated class A pairs at r0 and zero at r1 through r3. The condition for
-a second distance-transform peak, `d^2 > r1^2 - r2^2`, is satisfied
-automatically once `d` is near `r1 + r2`. What I had been calling an
-architectural ceiling for distance-transform watershed is an artifact of
-the generator's deep overlap, not a property of colonies that meet by
-growing into each other. Class D, which splits at 95 to 98%, becomes the
-dominant class instead.
+**Class A disappears under realistic contact, but not unconditionally.**
+There were 85 and 239 isolated class A pairs at r0 and zero at r1 through
+r3. The condition for a second distance-transform peak is
+`d^2 > r1^2 - r2^2`, and substituting `d = f * (r1 + r2)` reduces it to a
+constraint on the radius ratio alone:
+
+    r2 / r1 > (1 - f^2) / (1 + f^2)
+
+At the worst case in the abut band, `f = 0.90`, that is `r2/r1 > 0.105`.
+So it is not automatic: a sufficiently lopsided pair would still be class
+A even at tangency. It holds across every plate here because
+`COLONY_RADIUS_MM_RANGE = (0.6, 2.2)` floors the ratio at 0.273, a factor
+of 2.6 of margin. The `size_variance` bands are tighter but still safe,
+bottoming out at 0.200 for a variance ratio of 5.0. A future ladder run on
+a wider size spread could reintroduce class A, so this is a property of
+this radius range and not a general result.
+
+With that qualification: what I had been calling an architectural ceiling
+for distance-transform watershed is an artifact of the generator's deep
+overlap, not a property of colonies that meet by growing into each other.
+Class D, which splits at 95 to 98%, becomes the dominant class instead.
 
 **Precision degrades slightly and in a benign direction.** Pooled
 precision falls from 0.998 at r0 to 0.990 to 0.996 at r1 to r3. Across all
@@ -193,8 +208,31 @@ small enough that it is not worth chasing against synthetic data.
   could move these numbers either way. Chacon et al. found colony size
   tracks each colony's Voronoi territory, which supports abutting contact
   over interpenetration, but that is a different organism and medium.
-- **r0 to r1 moves two things**, contact placement and sub-pixel
-  rasterisation. The r1 to r3 steps are clean single changes.
+- **Dome shading cancels the rim ring at r3**, which the ladder table
+  does not convey. `DOME_RIM_DELTA_FRACTION = 0.55` puts the dome's rim at
+  intensity 167, and adding the 25-unit ring brings it to 142 against a
+  colony interior of 140, so the seam ends up 2 units brighter than the
+  interior rather than 25 units darker. Measured in a rendered `r3` plate,
+  the seam is gone. This does not change a conclusion, because `r2` is the
+  clean test of the rim cue and `r2` to `r3` is still a valid test of
+  shading, blur and noise, but `r3` does not carry `r2`'s cue and the
+  table reads as though it does. The two parameters interact and I did not
+  anticipate it. I am not re-rendering to fix it: the ladder parameters
+  were committed before Phase 3 and changing them after seeing results is
+  what pre-registration exists to prevent.
+- **The ladder rungs are unpaired.** Each set gets its own seed block, so
+  the four rungs are different random scenarios rather than the same
+  plates re-rendered. Colony totals drift 1640 to 1719 and touching rate
+  29.9% to 33.9% purely from reseeding, so the ladder holds count and
+  touching rate constant in distribution but not plate by plate. Seed-to
+  seed F1 noise is bounded at roughly 0.002 to 0.007 by the control
+  comparison, against an r0 to r1 jump of 0.091 and 0.066, so this does
+  not threaten the result. A paired design, same seeds with only the
+  rendering kwargs varied, was available for free and is what I should
+  have done. Worth doing if this is ever re-run.
+- **r0 to r1 moves three things**, contact placement, sub-pixel
+  rasterisation, and the scenario reseeding above. The r1 to r3 steps
+  change one rendering option each, plus reseeding.
 - **The ladder parameters were set, not tuned.** Rim width and delta, blur
   sigma and noise sd were chosen from physical reasoning and written into
   the generator before Phase 3 ran. No value was selected by looking at a
