@@ -392,25 +392,32 @@ def _draw_colony_realistic(canvas: np.ndarray, cx: float, cy: float, radius_px: 
 
 def _visible_fractions(placements: List[Tuple[float, float, float]],
                         supersample: int = 2) -> List[float]:
-    """Per colony, the share of its own disc not covered by any later-drawn disc.
+    """Per colony, the share of its own disc not covered by any other disc.
 
-    Colonies are drawn in sequence and a later one overwrites an earlier
-    one, so "covered" means covered by a colony drawn after it. This is the
-    quantity that decides whether a missed colony was ever recoverable: a
-    colony with visible_fraction near zero left no pixels of its own in the
-    render, and no segmentation method can find it, yet ground truth still
-    counts it. Rasterised rather than computed from the two-disc lens
-    formula, because the lens area does not compose for three or more
-    mutually overlapping discs.
+    This is the quantity that decides whether a missed colony was ever
+    recoverable. Every colony is drawn with the same fill value, so the
+    union of overlapping discs renders as one flat region and "whose
+    pixels" is not a meaningful question: what matters is whether a colony
+    contributes any area to the silhouette that no other colony already
+    accounts for. A colony lying entirely inside the union of its
+    neighbours has visible_fraction 0, leaves no evidence of itself in the
+    render at all, and cannot be found by any segmentation method, yet
+    ground truth still counts it.
 
-    Discs are used even for irregular (polygon) colonies, so for those sets
-    this is an approximation of the drawn shape, not an exact measure.
+    Deliberately order-independent. Scoring it against later-drawn discs
+    only would hand a colony fully contained in an EARLIER colony a
+    visible_fraction of 1.0, which is the opposite of the truth.
+
+    Rasterised rather than computed from the two-disc lens formula, because
+    the lens area does not compose for three or more mutually overlapping
+    discs. Discs are used even for irregular (polygon) colonies, so for
+    those sets this approximates the drawn shape rather than measuring it.
     """
     fractions: List[float] = []
     for i, (cx, cy, radius) in enumerate(placements):
-        later = [(ox, oy, orad) for ox, oy, orad in placements[i + 1:]
-                 if math.hypot(cx - ox, cy - oy) < radius + orad]
-        if not later:
+        others = [(ox, oy, orad) for j, (ox, oy, orad) in enumerate(placements)
+                  if j != i and math.hypot(cx - ox, cy - oy) < radius + orad]
+        if not others:
             fractions.append(1.0)
             continue
         step = 1.0 / supersample
@@ -422,7 +429,7 @@ def _visible_fractions(placements: List[Tuple[float, float, float]],
             fractions.append(1.0)
             continue
         covered = np.zeros_like(own)
-        for ox, oy, orad in later:
+        for ox, oy, orad in others:
             covered |= np.hypot(gx - ox, gy - oy) <= orad
         fractions.append(float((own & ~covered).sum()) / total)
     return fractions
