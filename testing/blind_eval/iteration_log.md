@@ -446,3 +446,62 @@ still overstated, even post-fix.
 participates in, so clustered colonies are weighted more heavily; and a
 member can go unmatched for reasons unrelated to overlap (e.g. the
 `max_area_mm2` ceiling), which is not separated out here.
+
+---
+
+## Realistic-contact evaluation (branch `feat/realistic-contact-eval`)
+
+**Question.** My blind eval is synthetic-only and two of five held-out
+sets fail. I could not tell whether the method was failing or the
+generator was unfair, because forced-touching colonies are placed at 30 to
+70% of the radius sum with a flat fill, which is not how colonies meet.
+
+**What I did.** Added six additive `PlateScenario` fields, all defaulting
+to current behaviour, and built a four-step ladder: r0 current overlap
+(control), r1 abut near r1+r2, r2 plus a rim ring, r3 plus dome shading,
+blur and sensor noise. Eight new sets of 50 plates on seed base 2,000,000.
+Pre-registered the decision rule in commit `68a6ed5` before running.
+
+**Result: method holds.** Pooled F1 0.966 on `contact_r3` and 0.968 on
+`contact_dense_r3` against the 0.90 threshold. Controls reproduce the
+baseline: `contact_r0` 0.870 against `high_touching` 0.877, and
+`contact_dense_r0` 0.906 against `dense_pack` 0.904.
+
+**The findings that matter beyond the score.**
+
+1. The entire improvement is at r0 to r1. Contact depth was the whole
+   effect; the rim cue and the shading/blur/noise step changed nothing.
+2. The rim cue bought nothing because `_subtract_background` thresholds to
+   a binary mask before `_apply_watershed` runs. The seam is discarded
+   before anything could use it. The pipeline segments a silhouette, not
+   an image. Any image-evidence splitter has to act before the threshold.
+3. Isolated class A pairs go from 85 and 239 at r0 to zero at r1 to r3.
+   `d^2 > r1^2 - r2^2` holds automatically once d is near r1+r2. The
+   "architectural ceiling" I attributed to distance-transform watershed is
+   a property of the generator's deep overlap, not of real contact.
+4. Precision falls 0.998 to 0.990-0.996. Of all false positives across
+   eight sets, 3 are on bare agar; the rest are oversplits inside real
+   colonies. The pipeline does not invent colonies.
+5. Misses under 0.25 visible fall from 51.9% at r0 to 21.8% at r3, and
+   recall at 0.50-and-up visible is 0.959 to 0.965.
+
+**Tradeoffs I accepted.** r0 to r1 changes contact placement and sub-pixel
+rasterisation together, because sub-pixel centres only apply in the new
+modes; r1 to r3 are clean single changes. Ladder parameters were set from
+physical reasoning and committed before Phase 3, not tuned against a
+score. Class C is thinly populated under abut (5 to 13 pairs) so its split
+rate there is not a reliable estimate.
+
+**What this closes and what it opens.** It closes the segmentation
+question for synthetic data: there is no method problem left to find
+without real plates, and further tuning against this generator would be
+fitting to its own artifacts. It opens one question for the lab, namely
+whether colonies on our media abut or deform where they meet, since my
+`U(0.90, 1.00)` contact model is an assumption that could move these
+numbers either way.
+
+**Still open and unchanged by this work.** `max_area_mm2` derived from
+plate calibration rather than a constant (the diagnostics rerun confirms
+raising it to 80 takes `size_variance` to F1 1.000 and pooled to 0.926),
+cluster-aware splitting for 3+ colony clusters, anomaly-layer tuning
+(pooled F1 0.405, never tuned), and biological validation.

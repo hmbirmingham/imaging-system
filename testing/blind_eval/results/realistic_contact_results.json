@@ -1,0 +1,442 @@
+{
+  "contact_r0": {
+    "set": "contact_r0",
+    "pooled": {
+      "n_plates": 50,
+      "precision": 0.9976322020520916,
+      "recall": 0.7707317073170732,
+      "f1": 0.869625042999656,
+      "anomaly_precision": 0.5412371134020618,
+      "anomaly_recall": 0.4,
+      "anomaly_f1": 0.4600219058050384,
+      "mean_count_error_pct": 22.719262704747997,
+      "mean_per_plate_f1": 0.8681422839253407
+    },
+    "visibility_recall": {
+      "under 0.10": {
+        "total": 126,
+        "matched": 14,
+        "recall": 0.1111111111111111
+      },
+      "0.10 to 0.25": {
+        "total": 97,
+        "matched": 14,
+        "recall": 0.14432989690721648
+      },
+      "0.25 to 0.50": {
+        "total": 211,
+        "matched": 74,
+        "recall": 0.35071090047393366
+      },
+      "0.50 and up": {
+        "total": 1206,
+        "matched": 1162,
+        "recall": 0.9635157545605307
+      }
+    },
+    "pair_classes": {
+      "A no second peak": {
+        "split": 0,
+        "not split": 85
+      },
+      "B saddle <1 px": {
+        "split": 30,
+        "not split": 63
+      },
+      "C saddle 1-2 px": {
+        "split": 25,
+        "not split": 2
+      },
+      "D saddle >=2 px": {
+        "split": 14,
+        "not split": 2
+      }
+    },
+    "false_positive_origin": {
+      "inside a ground-truth colony (oversplit)": 3,
+      "on bare agar (invented)": 0
+    },
+    "misses_total": 376,
+    "misses_under_025_visible": 195,
+    "misses_under_025_visible_pct": 51.861702127659576
+  },
+  "contact_r1": {
+    "set": "contact_r1",
+    "pooled": {
+      "n_plates": 50,
+      "precision": 0.9820210787352759,
+      "recall": 0.9406175771971497,
+      "f1": 0.9608735213830755,
+      "anomaly_precision": 0.5040276179516686,
+      "anomaly_recall": 0.8471953578336557,
+      "anomaly_f1": 0.6320346320346321,
+      "mean_count_error_pct": 4.770172661465833,
+      "mean_per_plate_f1": 0.9596272264435421
+    },
+    "visibility_recall": {
+      "under 0.10": {
+        "total": 17,
+        "matched": 5,
+        "recall": 0.29411764705882354
+      },
+      "0.10 to 0.25": {
+        "total": 16,
+        "matched": 6,
+        "recall": 0.375
+      },
+      "0.25 to 0.50": {
+        "total": 20,
+        "matched": 8,
+        "recall": 0.4
+      },
+      "0.50 and up": {
+        "total": 1631,
+        "matched": 1565,
+        "recall": 0.9595340282035562
+      }
+    },
+    "pair_classes": {
+      "C saddle 1-2 px": {
+        "split": 0,
+        "not split": 5
+      },
+      "D saddle >=2 px": {
+        "split": 198,
+        "not split": 11
+      }
+    },
+    "false_positive_origin": {
+      "inside a ground-truth colony (oversplit)": 29,
+      "on bare agar (invented)": 0
+    },
+    "misses_total": 100,
+    "misses_under_025_visible": 22,
+    "misses_under_025_visible_pct": 22.0
+  },
+  "contact_r2": {
+    "set": "contact_r2",
+    "pooled": {
+      "n_plates": 50,
+      "precision": 0.9956112852664577,
+      "recall": 0.9237929028504944,
+      "f1": 0.9583584791792396,
+      "anomaly_precision": 0.5236004390779363,
+      "anomaly_recall": 0.8195876288659794,
+      "anomaly_f1": 0.638981915606162,
+      "mean_count_error_pct": 7.174263310365601,
+      "mean_per_plate_f1": 0.957736368573911
+    },
+    "visibility_recall": {
+      "under 0.10": {
+        "total": 29,
+        "matched": 8,
+        "recall": 0.27586206896551724
+      },
+      "0.10 to 0.25": {
+        "total": 17,
+        "matched": 5,
+        "recall": 0.29411764705882354
+      },
+      "0.25 to 0.50": {
+        "total": 33,
+        "matched": 14,
+        "recall": 0.42424242424242425
+      },
+      "0.50 and up": {
+        "total": 1640,
+        "matched": 1561,
+        "recall": 0.9518292682926829
+      }
+    },
+    "pair_classes": {
+      "C saddle 1-2 px": {
+        "split": 1,
+        "not split": 4
+      },
+      "D saddle >=2 px": {
+        "split": 230,
+        "not split": 7
+      }
+    },
+    "false_positive_origin": {
+      "inside a ground-truth colony (oversplit)": 7,
+      "on bare agar (invented)": 0
+    },
+    "misses_total": 131,
+    "misses_under_025_visible": 33,
+    "misses_under_025_visible_pct": 25.19083969465649
+  },
+  "contact_r3": {
+    "set": "contact_r3",
+    "pooled": {
+      "n_plates": 50,
+      "precision": 0.9919404835709857,
+      "recall": 0.940623162845385,
+      "f1": 0.9656004828002415,
+      "anomaly_precision": 0.5098493626882966,
+      "anomaly_recall": 0.8661417322834646,
+      "anomaly_f1": 0.6418672501823487,
+      "mean_count_error_pct": 5.252406598230518,
+      "mean_per_plate_f1": 0.9655715604743268
+    },
+    "visibility_recall": {
+      "under 0.10": {
+        "total": 20,
+        "matched": 5,
+        "recall": 0.25
+      },
+      "0.10 to 0.25": {
+        "total": 8,
+        "matched": 1,
+        "recall": 0.125
+      },
+      "0.25 to 0.50": {
+        "total": 17,
+        "matched": 6,
+        "recall": 0.35294117647058826
+      },
+      "0.50 and up": {
+        "total": 1656,
+        "matched": 1588,
+        "recall": 0.9589371980676329
+      }
+    },
+    "pair_classes": {
+      "C saddle 1-2 px": {
+        "split": 2,
+        "not split": 3
+      },
+      "D saddle >=2 px": {
+        "split": 242,
+        "not split": 13
+      }
+    },
+    "false_positive_origin": {
+      "inside a ground-truth colony (oversplit)": 13,
+      "on bare agar (invented)": 0
+    },
+    "misses_total": 101,
+    "misses_under_025_visible": 22,
+    "misses_under_025_visible_pct": 21.782178217821784
+  },
+  "contact_dense_r0": {
+    "set": "contact_dense_r0",
+    "pooled": {
+      "n_plates": 50,
+      "precision": 0.99791280148423,
+      "recall": 0.8295739348370927,
+      "f1": 0.905990104221497,
+      "anomaly_precision": 0.38699080157687255,
+      "anomaly_recall": 0.46051602814698983,
+      "anomaly_f1": 0.420564084255623,
+      "mean_count_error_pct": 16.859037355558602,
+      "mean_per_plate_f1": 0.9057609907450089
+    },
+    "visibility_recall": {
+      "under 0.10": {
+        "total": 236,
+        "matched": 23,
+        "recall": 0.09745762711864407
+      },
+      "0.10 to 0.25": {
+        "total": 202,
+        "matched": 26,
+        "recall": 0.12871287128712872
+      },
+      "0.25 to 0.50": {
+        "total": 557,
+        "matched": 196,
+        "recall": 0.3518850987432675
+      },
+      "0.50 and up": {
+        "total": 4192,
+        "matched": 4058,
+        "recall": 0.9680343511450382
+      }
+    },
+    "pair_classes": {
+      "A no second peak": {
+        "split": 1,
+        "not split": 238
+      },
+      "B saddle <1 px": {
+        "split": 106,
+        "not split": 220
+      },
+      "C saddle 1-2 px": {
+        "split": 83,
+        "not split": 3
+      },
+      "D saddle >=2 px": {
+        "split": 44,
+        "not split": 1
+      }
+    },
+    "false_positive_origin": {
+      "inside a ground-truth colony (oversplit)": 9,
+      "on bare agar (invented)": 0
+    },
+    "misses_total": 884,
+    "misses_under_025_visible": 389,
+    "misses_under_025_visible_pct": 44.00452488687783
+  },
+  "contact_dense_r1": {
+    "set": "contact_dense_r1",
+    "pooled": {
+      "n_plates": 50,
+      "precision": 0.9914807302231238,
+      "recall": 0.9541284403669725,
+      "f1": 0.9724460360091516,
+      "anomaly_precision": 0.4160028964518465,
+      "anomaly_recall": 0.8791124713083397,
+      "anomaly_f1": 0.5647579257802899,
+      "mean_count_error_pct": 3.9170310293335704,
+      "mean_per_plate_f1": 0.9720879173396939
+    },
+    "visibility_recall": {
+      "under 0.10": {
+        "total": 37,
+        "matched": 5,
+        "recall": 0.13513513513513514
+      },
+      "0.10 to 0.25": {
+        "total": 38,
+        "matched": 8,
+        "recall": 0.21052631578947367
+      },
+      "0.25 to 0.50": {
+        "total": 74,
+        "matched": 29,
+        "recall": 0.3918918918918919
+      },
+      "0.50 and up": {
+        "total": 4974,
+        "matched": 4846,
+        "recall": 0.9742661841576197
+      }
+    },
+    "pair_classes": {
+      "C saddle 1-2 px": {
+        "split": 5,
+        "not split": 8
+      },
+      "D saddle >=2 px": {
+        "split": 605,
+        "not split": 11
+      }
+    },
+    "false_positive_origin": {
+      "inside a ground-truth colony (oversplit)": 41,
+      "on bare agar (invented)": 1
+    },
+    "misses_total": 235,
+    "misses_under_025_visible": 62,
+    "misses_under_025_visible_pct": 26.382978723404257
+  },
+  "contact_dense_r2": {
+    "set": "contact_dense_r2",
+    "pooled": {
+      "n_plates": 50,
+      "precision": 0.9928765975277604,
+      "recall": 0.9502707038299579,
+      "f1": 0.9711065573770492,
+      "anomaly_precision": 0.4107756973633932,
+      "anomaly_recall": 0.8655394524959742,
+      "anomaly_f1": 0.55713915522156,
+      "mean_count_error_pct": 4.410746339652152,
+      "mean_per_plate_f1": 0.9710202047533181
+    },
+    "visibility_recall": {
+      "under 0.10": {
+        "total": 47,
+        "matched": 4,
+        "recall": 0.0851063829787234
+      },
+      "0.10 to 0.25": {
+        "total": 26,
+        "matched": 8,
+        "recall": 0.3076923076923077
+      },
+      "0.25 to 0.50": {
+        "total": 54,
+        "matched": 24,
+        "recall": 0.4444444444444444
+      },
+      "0.50 and up": {
+        "total": 4860,
+        "matched": 4703,
+        "recall": 0.9676954732510288
+      }
+    },
+    "pair_classes": {
+      "C saddle 1-2 px": {
+        "split": 0,
+        "not split": 9
+      },
+      "D saddle >=2 px": {
+        "split": 525,
+        "not split": 15
+      }
+    },
+    "false_positive_origin": {
+      "inside a ground-truth colony (oversplit)": 33,
+      "on bare agar (invented)": 1
+    },
+    "misses_total": 248,
+    "misses_under_025_visible": 61,
+    "misses_under_025_visible_pct": 24.596774193548388
+  },
+  "contact_dense_r3": {
+    "set": "contact_dense_r3",
+    "pooled": {
+      "n_plates": 50,
+      "precision": 0.9896265560165975,
+      "recall": 0.9466163921412979,
+      "f1": 0.9676437772593569,
+      "anomaly_precision": 0.4113394216133942,
+      "anomaly_recall": 0.8606687898089171,
+      "anomaly_f1": 0.5566426364572606,
+      "mean_count_error_pct": 4.377068836239976,
+      "mean_per_plate_f1": 0.9679408948108562
+    },
+    "visibility_recall": {
+      "under 0.10": {
+        "total": 44,
+        "matched": 13,
+        "recall": 0.29545454545454547
+      },
+      "0.10 to 0.25": {
+        "total": 31,
+        "matched": 9,
+        "recall": 0.2903225806451613
+      },
+      "0.25 to 0.50": {
+        "total": 67,
+        "matched": 23,
+        "recall": 0.34328358208955223
+      },
+      "0.50 and up": {
+        "total": 4897,
+        "matched": 4725,
+        "recall": 0.9648764549724321
+      }
+    },
+    "pair_classes": {
+      "C saddle 1-2 px": {
+        "split": 2,
+        "not split": 10
+      },
+      "D saddle >=2 px": {
+        "split": 554,
+        "not split": 30
+      }
+    },
+    "false_positive_origin": {
+      "inside a ground-truth colony (oversplit)": 49,
+      "on bare agar (invented)": 1
+    },
+    "misses_total": 269,
+    "misses_under_025_visible": 53,
+    "misses_under_025_visible_pct": 19.702602230483272
+  }
+}
