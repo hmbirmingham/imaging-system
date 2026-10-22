@@ -1,5 +1,5 @@
 """
-analyze_contact_ladder.py — score the realistic-contact ladder sets and
+analyze_contact_ladder.py : score the realistic-contact ladder sets and
 break the result down the three ways the decision rule needs.
 
 Imports run_blind_eval's matching and scoring rather than reimplementing

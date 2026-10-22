@@ -1,5 +1,5 @@
 """
-generate_contact_plates.py — write the realistic-contact ladder plate sets
+generate_contact_plates.py : write the realistic-contact ladder plate sets
 to disk, in the same layout generate_held_out_plates.py produces so
 run_blind_eval.py can score them with no change to the harness.
 
