@@ -52,6 +52,7 @@ testing/thesis_export/generated/
 # manifest row logs. Results tables (testing/blind_eval/results/) ARE
 # committed — see testing/blind_eval/run_blind_eval.py.
 testing/blind_eval/plates/
+testing/blind_eval/contact_plates/
 
 # Session handoff notes — working notes for continuity between sessions,
 # not project documentation.
