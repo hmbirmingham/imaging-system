@@ -59,6 +59,28 @@ HELD_OUT_HOTSPOT_MAGNITUDE_PCT_RANGE: Tuple[float, float] = (0.35, 0.50)
 HELD_OUT_SIZE_VARIANCE_RATIO_RANGE: Tuple[float, float] = (3.5, 5.0)
 HELD_OUT_TOUCHING_RATE_RANGE: Tuple[float, float] = (0.25, 0.40)
 
+# ── Realistic-contact rendering ────────────────────────────────────────────
+# The default "overlap" contact mode places a forced-touching colony at
+# (r1 + r2) * (1 - U(0.3, 0.7)) from its neighbour, i.e. centre distances of
+# 30 to 70% of the radius sum. Those are deep interpenetrations, and because
+# every colony is drawn with the same flat fill value, a small colony landing
+# mostly inside a large one leaves no rendered evidence that it is there at
+# all while ground truth still counts it. No segmentation method can recover
+# those. "abut" instead places contact near r1 + r2, which is how colonies
+# growing on a plate actually meet: they expand until their edges touch and
+# then stop, rather than growing through one another.
+CONTACT_MODES = ("overlap", "abut")
+ABUT_CONTACT_DISTANCE_FRACTION_RANGE: Tuple[float, float] = (0.90, 1.00)
+
+COLONY_SHADING_MODES = ("none", "dome")
+# A real backlit colony is thickest at its centre, so it attenuates most
+# there and least at its rim. "dome" scales the colony's intensity delta by
+# this floor at the rim rising to 1.0 at the centre, instead of the flat
+# fill the default uses. The floor is deliberately well above zero: a dome
+# that fades fully to the agar level at the rim would delete the silhouette
+# edge and conflate a shading test with a contrast test.
+DOME_RIM_DELTA_FRACTION = 0.55
+
 # ── Track 1: plate image generation ────────────────────────────────────────
 
 ILLUMINATIONS = ("uniform", "gradient", "hotspot", "low_contrast")
@@ -127,6 +149,29 @@ class PlateScenario:
     size_variance_ratio: Optional[float] = None
     touching_rate: Optional[float] = None
 
+    # Realistic-contact rendering. Every one of the five defaults below
+    # reproduces the prior behaviour exactly, and `uses_realistic_rendering`
+    # stays False while they do, so generate_plate_image() keeps taking the
+    # original integer-centre cv2.circle/fillPoly path for every existing
+    # caller and renders byte-for-byte as before.
+    contact_mode: str = "overlap"
+    contact_edge_px: float = 0.0
+    contact_edge_delta: float = 0.0
+    colony_shading: str = "none"
+    blur_sigma_px: float = 0.0
+    sensor_noise_std: float = 0.0
+
+    def uses_realistic_rendering(self) -> bool:
+        """True when any contact/shading option needs the sub-pixel renderer.
+
+        Blur and sensor noise are deliberately NOT in this predicate: both
+        are whole-canvas post-processing applied after every colony is
+        drawn, so they work the same under either renderer.
+        """
+        return (self.contact_mode != "overlap"
+                or self.contact_edge_px > 0
+                or self.colony_shading != "none")
+
     def __post_init__(self):
         if self.illumination not in ILLUMINATIONS:
             raise ValueError(f"Unknown illumination: {self.illumination}")
@@ -149,6 +194,16 @@ class PlateScenario:
             raise ValueError("size_variance_ratio must be greater than 1")
         if self.touching_rate is not None and not (0 <= self.touching_rate <= 1):
             raise ValueError("touching_rate must be in [0, 1]")
+        if self.contact_mode not in CONTACT_MODES:
+            raise ValueError(f"Unknown contact_mode: {self.contact_mode}")
+        if self.colony_shading not in COLONY_SHADING_MODES:
+            raise ValueError(f"Unknown colony_shading: {self.colony_shading}")
+        if self.contact_edge_px < 0:
+            raise ValueError("contact_edge_px must be non-negative")
+        if self.blur_sigma_px < 0:
+            raise ValueError("blur_sigma_px must be non-negative")
+        if self.sensor_noise_std < 0:
+            raise ValueError("sensor_noise_std must be non-negative")
 
 
 def expected_px_per_mm(plate_radius_px: float,
@@ -243,6 +298,136 @@ def _draw_colony_shape(canvas: np.ndarray, cx: float, cy: float, radius_px: floa
     return (4 * math.pi * area / perimeter ** 2) if perimeter > 0 else 0.0
 
 
+def _draw_colony_realistic(canvas: np.ndarray, cx: float, cy: float, radius_px: float,
+                            agar_value: float, colony_delta: float,
+                            shading: str, edge_px: float, edge_delta: float,
+                            circularity_noise_std: float,
+                            rng: np.random.Generator) -> float:
+    """Draw one colony at a sub-pixel centre and return its actual circularity.
+
+    Differs from _draw_colony_shape in the three ways the realistic-contact
+    ladder needs, and is only reached when PlateScenario.
+    uses_realistic_rendering() is True, so the default path is untouched:
+
+    1. Sub-pixel centre and an anti-aliased rim, via per-pixel coverage from
+       a distance field, instead of cv2.circle at an integer centre. Contact
+       geometry near d = r1 + r2 turns on sub-pixel distances, so rounding
+       every centre to an integer quantises exactly the variable under test.
+    2. Optional dome shading, so intensity falls from centre to rim the way
+       a backlit colony's own thickness makes it.
+    3. Optional darker or lighter rim ring. This is the cue the default
+       renderer cannot produce: with one flat fill value, two colonies that
+       meet render as one indivisible region, whereas under real lighting
+       their touching edges leave a visible boundary line. `edge_delta` is
+       signed, positive darkens the ring and negative lightens it.
+
+    rng is consumed identically to _draw_colony_shape (one normal(size=20)
+    draw when circularity_noise_std > 0, nothing otherwise), so switching
+    renderers does not shift the plate's random stream.
+    """
+    n_pts = 20
+    jitter = None
+    if circularity_noise_std > 0:
+        jitter = np.clip(rng.normal(1.0, circularity_noise_std, size=n_pts), 0.4, 1.8)
+
+    reach = radius_px * (1.8 if jitter is not None else 1.0) + max(edge_px, 0.0) + 2.0
+    x0 = max(0, int(math.floor(cx - reach)))
+    x1 = min(canvas.shape[1], int(math.ceil(cx + reach)) + 1)
+    y0 = max(0, int(math.floor(cy - reach)))
+    y1 = min(canvas.shape[0], int(math.ceil(cy + reach)) + 1)
+    if x1 <= x0 or y1 <= y0:
+        return 1.0
+
+    yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+    dx, dy = xx - cx, yy - cy
+    dist = np.hypot(dx, dy)
+
+    # Local radius: constant for a disc, angle-modulated when the scenario
+    # asks for irregular morphology. np.interp wraps the 20 sampled jitter
+    # values around the circle the same way fillPoly closes the polygon.
+    if jitter is not None:
+        angles = np.linspace(0, 2 * math.pi, n_pts, endpoint=False)
+        theta = np.mod(np.arctan2(dy, dx), 2 * math.pi)
+        local_radius = radius_px * np.interp(
+            theta, np.append(angles, 2 * math.pi), np.append(jitter, jitter[0]))
+    else:
+        local_radius = np.full_like(dist, radius_px)
+
+    # Coverage is a one-pixel linear ramp across the rim: the anti-aliasing.
+    coverage = np.clip(local_radius + 0.5 - dist, 0.0, 1.0)
+    if not coverage.any():
+        return 1.0
+
+    if shading == "dome":
+        # Hemisphere thickness profile, floored at the rim so the silhouette
+        # edge keeps its contrast (see DOME_RIM_DELTA_FRACTION).
+        norm = np.clip(dist / np.maximum(local_radius, 1e-6), 0.0, 1.0)
+        profile = DOME_RIM_DELTA_FRACTION + (1.0 - DOME_RIM_DELTA_FRACTION) * np.sqrt(
+            np.clip(1.0 - norm * norm, 0.0, 1.0))
+    else:
+        profile = np.ones_like(dist)
+
+    delta = colony_delta * profile
+    if edge_px > 0 and edge_delta != 0:
+        ring = (dist >= local_radius - edge_px) & (dist <= local_radius + 0.5)
+        delta = delta + ring * edge_delta
+
+    colony_value = np.clip(agar_value - delta, 0, 255)
+    patch = canvas[y0:y1, x0:x1]
+    canvas[y0:y1, x0:x1] = patch * (1.0 - coverage) + colony_value * coverage
+
+    if jitter is None:
+        return 1.0
+    # Measure circularity from the rendered coverage the same way
+    # _draw_colony_shape does, so ground truth reflects the drawn shape.
+    local = (coverage >= 0.5).astype(np.uint8) * 255
+    contours, _ = cv2.findContours(local, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return 1.0
+    contour = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(contour)
+    perimeter = cv2.arcLength(contour, True)
+    return (4 * math.pi * area / perimeter ** 2) if perimeter > 0 else 0.0
+
+
+def _visible_fractions(placements: List[Tuple[float, float, float]],
+                        supersample: int = 2) -> List[float]:
+    """Per colony, the share of its own disc not covered by any later-drawn disc.
+
+    Colonies are drawn in sequence and a later one overwrites an earlier
+    one, so "covered" means covered by a colony drawn after it. This is the
+    quantity that decides whether a missed colony was ever recoverable: a
+    colony with visible_fraction near zero left no pixels of its own in the
+    render, and no segmentation method can find it, yet ground truth still
+    counts it. Rasterised rather than computed from the two-disc lens
+    formula, because the lens area does not compose for three or more
+    mutually overlapping discs.
+
+    Discs are used even for irregular (polygon) colonies, so for those sets
+    this is an approximation of the drawn shape, not an exact measure.
+    """
+    fractions: List[float] = []
+    for i, (cx, cy, radius) in enumerate(placements):
+        later = [(ox, oy, orad) for ox, oy, orad in placements[i + 1:]
+                 if math.hypot(cx - ox, cy - oy) < radius + orad]
+        if not later:
+            fractions.append(1.0)
+            continue
+        step = 1.0 / supersample
+        span = np.arange(-radius, radius + step, step, dtype=np.float32)
+        gx, gy = np.meshgrid(cx + span, cy + span)
+        own = np.hypot(gx - cx, gy - cy) <= radius
+        total = int(own.sum())
+        if total == 0:
+            fractions.append(1.0)
+            continue
+        covered = np.zeros_like(own)
+        for ox, oy, orad in later:
+            covered |= np.hypot(gx - ox, gy - oy) <= orad
+        fractions.append(float((own & ~covered).sum()) / total)
+    return fractions
+
+
 def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
     """
     Render a synthetic backlit plate image plus its ground truth.
@@ -323,8 +508,15 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
         if placements and touch_prob > 0 and rng.uniform() < touch_prob:
             ox, oy, orad = placements[-1]
             angle = rng.uniform(0, 2 * math.pi)
-            overlap_frac = rng.uniform(0.3, 0.7)
-            dist = (orad + radius_px) * (1 - overlap_frac)
+            # Both contact modes consume exactly one uniform() draw here, in
+            # the same position in the stream, so switching modes does not
+            # shift any later draw and "overlap" stays byte-identical.
+            if scenario.contact_mode == "abut":
+                dist = (orad + radius_px) * rng.uniform(
+                    *ABUT_CONTACT_DISTANCE_FRACTION_RANGE)
+            else:
+                overlap_frac = rng.uniform(0.3, 0.7)
+                dist = (orad + radius_px) * (1 - overlap_frac)
             px, py = ox + dist * math.cos(angle), oy + dist * math.sin(angle)
             touching = True
         else:
@@ -340,9 +532,18 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
                 touching = _overlaps_any(px, py, radius_px)
 
         placements.append((px, py, radius_px))
-        circularity = _draw_colony_shape(
-            canvas, px, py, radius_px, float(max(0, agar_level - colony_delta)),
-            scenario.circularity_noise_std, rng)
+        if scenario.uses_realistic_rendering():
+            # agar_value is the nominal agar level, not the locally
+            # illuminated value, matching _draw_colony_shape's own constant
+            # fill so the two renderers differ only in contact rendering.
+            circularity = _draw_colony_realistic(
+                canvas, px, py, radius_px, float(agar_level), float(colony_delta),
+                scenario.colony_shading, scenario.contact_edge_px,
+                scenario.contact_edge_delta, scenario.circularity_noise_std, rng)
+        else:
+            circularity = _draw_colony_shape(
+                canvas, px, py, radius_px, float(max(0, agar_level - colony_delta)),
+                scenario.circularity_noise_std, rng)
 
         # is_anomaly mirrors quantify._flag_anomalies()'s deterministic,
         # non-population-relative flags only (touching_colony, non_circular)
@@ -389,8 +590,26 @@ def generate_plate_image(scenario: PlateScenario) -> Tuple[np.ndarray, Dict]:
                         float(max(0, agar_level - colony_delta)), -1)
         artifact_records.append({"type": artifact, "cx": float(px), "cy": float(py)})
 
+    # Camera blur then sensor noise, in that physical order: the lens blurs
+    # the scene and the sensor adds noise to the already-blurred image, so
+    # noise must not itself be smoothed. Both are skipped entirely at their
+    # defaults, including the rng draw, so no existing caller's stream moves.
+    if scenario.blur_sigma_px > 0:
+        canvas = cv2.GaussianBlur(canvas, (0, 0), scenario.blur_sigma_px)
+    if scenario.sensor_noise_std > 0:
+        canvas = canvas + rng.normal(0.0, scenario.sensor_noise_std,
+                                      size=canvas.shape).astype(np.float32)
+
     canvas = np.clip(canvas, 0, 255).astype(np.uint8)
     image_bgr = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
+
+    # Recorded for every set, including the existing ones: adding a
+    # ground-truth key changes no image bytes and nothing in the blind
+    # harness scores against it, but it is what separates "the method missed
+    # a colony it could see" from "ground truth counted a colony that was
+    # never rendered".
+    for colony, visible in zip(colonies, _visible_fractions(placements)):
+        colony["visible_fraction"] = visible
 
     ground_truth = {
         "seed": scenario.seed,
@@ -463,6 +682,82 @@ def generate_held_out_plate(set_name: str, seed: int) -> Tuple[np.ndarray, Dict]
     scenario = generate_held_out_scenario(set_name, seed)
     image, ground_truth = generate_plate_image(scenario)
     ground_truth["held_out_set"] = set_name
+    return image, ground_truth
+
+
+# ── Realistic-contact ladder: held-out sets ────────────────────────────────
+# Kept out of HELD_OUT_SET_NAMES on purpose. Appending to that tuple would
+# pull these sets into the default run of generate_held_out_plates and
+# run_blind_eval, which would change the pooled numbers in the committed
+# blind_eval_results files. These get their own seed base and their own
+# plates directory instead, and the existing harness scores them unchanged.
+CONTACT_SET_NAMES: Tuple[str, ...] = (
+    "contact_r0", "contact_r1", "contact_r2", "contact_r3",
+    "contact_dense_r0", "contact_dense_r1", "contact_dense_r2", "contact_dense_r3",
+)
+
+# Ladder step parameters. Each is a stated choice, not a tuned one: nothing
+# below was selected by looking at a score.
+#
+# CONTACT_EDGE_PX / DELTA: a 1.5px rim darker by 25 intensity units, which
+#   is ~40% of the 60-unit colony delta. Wide enough to survive the 3x3
+#   morphological open/close in quantify._subtract_background, and when two
+#   colonies abut, their two rims put a ~3px darker seam at the contact.
+# CONTACT_BLUR_SIGMA_PX: 0.8px, a focused camera's point spread, enough to
+#   soften the rim cue without erasing it.
+# CONTACT_SENSOR_NOISE_STD: 2.0 intensity units, against a 60-unit colony
+#   delta, so roughly 30:1 and not the limiting factor.
+CONTACT_EDGE_PX = 1.5
+CONTACT_EDGE_DELTA = 25.0
+CONTACT_BLUR_SIGMA_PX = 0.8
+CONTACT_SENSOR_NOISE_STD = 2.0
+
+
+def _contact_ladder_kwargs(step: int) -> Dict:
+    """Rendering options for ladder step 0 to 3. Step 0 is the control and
+    returns nothing, so it renders exactly as the existing sets do."""
+    if step == 0:
+        return {}
+    kwargs: Dict = {"contact_mode": "abut"}
+    if step >= 2:
+        kwargs.update(contact_edge_px=CONTACT_EDGE_PX,
+                      contact_edge_delta=CONTACT_EDGE_DELTA)
+    if step >= 3:
+        kwargs.update(colony_shading="dome",
+                      blur_sigma_px=CONTACT_BLUR_SIGMA_PX,
+                      sensor_noise_std=CONTACT_SENSOR_NOISE_STD)
+    return kwargs
+
+
+def generate_contact_scenario(set_name: str, seed: int) -> PlateScenario:
+    """Build one PlateScenario for a realistic-contact ladder plate.
+
+    `contact_r*` matches high_touching's colony count and touching rate, and
+    `contact_dense_r*` matches dense_pack's, so within each family the only
+    thing the ladder changes is how contact is placed and rendered.
+    """
+    if set_name not in CONTACT_SET_NAMES:
+        raise ValueError(f"Unknown contact set: {set_name}")
+    step = int(set_name[-1])
+    ladder = _contact_ladder_kwargs(step)
+    rng = np.random.default_rng(seed)
+
+    if set_name.startswith("contact_dense_"):
+        # Mirrors dense_pack: 80 to 120 colonies, dense-tier touching rate.
+        return PlateScenario(seed=seed, density="dense",
+                              colony_count_range=HELD_OUT_COLONY_COUNT_RANGE,
+                              **ladder)
+    # Mirrors high_touching: dense-tier count, elevated touching rate.
+    rate = float(rng.uniform(*HELD_OUT_TOUCHING_RATE_RANGE))
+    return PlateScenario(seed=seed, density="dense", touching_rate=rate, **ladder)
+
+
+def generate_contact_plate(set_name: str, seed: int) -> Tuple[np.ndarray, Dict]:
+    """Render one realistic-contact ladder plate plus its ground truth."""
+    scenario = generate_contact_scenario(set_name, seed)
+    image, ground_truth = generate_plate_image(scenario)
+    ground_truth["held_out_set"] = set_name
+    ground_truth["contact_step"] = int(set_name[-1])
     return image, ground_truth
 
 
