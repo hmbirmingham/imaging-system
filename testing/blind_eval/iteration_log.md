@@ -580,3 +580,20 @@ intensity units, so every chromatic prior in the profile is gone before
 the detector does not look. Any profile-conditioned detection has to act
 before the threshold, which is the same conclusion the rim ring pointed at
 from the other direction.
+
+**Open follow-up: memo Revision 2.** Revision 1 already corrected the
+overreach, that pairwise geometry explains the whole residual gap, and
+reframed it around multi-colony clustering. What it still carries, and
+what the contact ladder now supersedes, is the line that the two-peak
+condition "holds for 68.4% of overlapping pairs here." That figure is a
+property of the generator's deep-overlap placement, not of colonies. Under
+abutting contact the class with no second peak goes to zero across all
+eight ladder sets. The published number is not wrong as scoped, the word
+"here" is doing real work, but no reader will catch that it describes my
+test data rather than the biology.
+
+Not urgent and not a correction of an error. It shrinks a stated
+limitation again, same direction as Revision 1. Carry it into the next
+memo revision alongside the qualification that class A vanishing depends
+on the radius ratio staying above 0.105, which this colony size range
+satisfies with 2.6x margin.
