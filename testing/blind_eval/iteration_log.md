@@ -541,3 +541,42 @@ Three overstatements it caught, all now corrected in
 
 It also flagged that a blanket `git add` had swept an unrelated
 `aggregate_report.md` rewrite into the ladder commit. Reverted.
+
+**Correction to the open-items list above.** I wrote that `max_area_mm2`
+should be "derived from plate calibration rather than a constant." That
+names the wrong source. `profiles.py` already resolves an expected mm2
+band per organism and plate type through `ProfileStore.
+expected_area_band()`, and `server.py` already calls it. The issue is
+where it is applied: `apply_profile()` runs *after* `quantify_colonies()`
+and only turns the band into an `outside_expected_size` anomaly flag,
+while detection itself still filters on one global `max_area_mm2 = 20.0`.
+
+The resolved band is the right source for the filter. Upper bounds run
+0.41 to 0.60 mm2 for pinpoint, 6.08 to 9.00 for medium and 16.20 to 24.00
+for large, by tolerance. One global 20.0 is therefore below a large/loose
+organism's 24.0, clipping real colonies, and far above a medium/loose
+organism's 9.0. It also resolves the tension I noted when the diagnostics
+showed `max_area_mm2 = 80` fixes `size_variance`: a global 80 would admit
+the 32.2 mm2 `oversized_blob` artifact the continuous harness expects
+rejected, whereas a large/loose profile band at 24.0 rejects it. So the
+work is to feed the resolved band into detection, not to loosen a
+constant, and the machinery already exists.
+
+**Scope limit this exposes.** Nothing in this validation exercises the
+profile axis at all. `synthetic_data.generate_plate_image()` renders flat
+grayscale, agar at 200 and colonies at 140, with no medium colour and no
+organism appearance. The five held-out sets vary density, touching, size
+spread, illumination and morphology; they do not vary organism or medium,
+because the generator has no model of either. That is the largest untested
+dimension of the system and it can only be validated on real plates of
+known organism and medium.
+
+It also sharpens the rim-cue finding. The profiles hold exactly the
+evidence detection discards: plate types carry medium appearance, organism
+plate blocks carry `colony_color`, `hemolysis` and `lactose`.
+`_subtract_background()` converts to grayscale and thresholds at 3
+intensity units, so every chromatic prior in the profile is gone before
+`_apply_watershed()` runs. The profile already states what to look for and
+the detector does not look. Any profile-conditioned detection has to act
+before the threshold, which is the same conclusion the rim ring pointed at
+from the other direction.
