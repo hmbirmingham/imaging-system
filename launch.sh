@@ -3,13 +3,24 @@
 # Activates venv, starts Flask server, opens Chromium in kiosk mode.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$SCRIPT_DIR/venv/bin/activate"
 
-# Activate virtual environment
-if [ -f "$VENV" ]; then
+# Activate virtual environment. The Pi's checkout uses venv/, development
+# checkouts use .venv/, so try both rather than hardcoding one name and
+# failing on the other machine.
+VENV=""
+for candidate in "$SCRIPT_DIR/venv" "$SCRIPT_DIR/.venv"; do
+    if [ -f "$candidate/bin/activate" ]; then
+        VENV="$candidate/bin/activate"
+        break
+    fi
+done
+
+if [ -n "$VENV" ]; then
     source "$VENV"
 else
-    echo "venv not found at $VENV — run: python3 -m venv venv && pip install -r requirements.txt"
+    echo "No virtualenv found at $SCRIPT_DIR/venv or $SCRIPT_DIR/.venv"
+    echo "Create one with: python3 -m venv venv --system-site-packages"
+    echo "then: pip install -r requirements.txt"
     exit 1
 fi
 
