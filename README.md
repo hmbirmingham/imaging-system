@@ -13,6 +13,7 @@ The user interface is a Flask web app (Apple-style SPA) served at `http://localh
 | Computer | Raspberry Pi 5 |
 | Camera | Raspberry Pi camera (picamera2) — runs in demo mode if absent |
 | Backlight | White LED panel, hardware-PWM driven (RP1 mmap) |
+| Power | Custom power control PCB, 5 V buck + LED driver + INA219 telemetry ([Rev A design files](hardware/power_pcb/README.md)) |
 | Interface | Touchscreen kiosk, or remote browser to `:5000` |
 
 ---
@@ -45,8 +46,9 @@ The user interface is a Flask web app (Apple-style SPA) served at `http://localh
 | **Ground-truth labels** (`is_anomaly`) | 🚩 **Not started** — 0 labelled colonies |
 | **ML anomaly model** | 🚩 **Not trained** — needs ≥ 50 labelled colonies |
 | **Counting / placement accuracy** | 🚩 **No data** — needs validated plates |
-| Hardware — Custom Power Control PCB (incl. white LED board) | 🚩 **Pending** |
-| Hardware — enclosure | ⏳ Pending (June) |
+| Hardware: Custom Power Control PCB, Rev A | 🔧 **Designed and fabricated; review found blocking issues, Rev B needed before bring-up** ([hardware/power_pcb](hardware/power_pcb/README.md)) |
+| Hardware: White LED board | 🚩 **Pending** |
+| Hardware: Enclosure | ⏳ Pending (board mechanical reference in [hardware/power_pcb](hardware/power_pcb/README.md#mechanical-for-the-enclosure)) |
 
 ### Pending validation (flagged)
 
